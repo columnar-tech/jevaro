@@ -5,8 +5,7 @@ from Python and JavaScript.
 
 You need Python 3.11+, Node.js 20.3+ for the JavaScript example, and a
 [TypeSafe API key](https://console.typesafe.ai). Use a Unix shell.
-The checkout contains the example scripts. Python packages install from PyPI;
-the JavaScript SDK currently installs from source.
+The checkout contains the Python example. Install the packages from PyPI and npm.
 If you already have a checkout, start at its root and skip the clone commands.
 
 ## 1. Start the server
@@ -62,7 +61,7 @@ PY
 
 You should see three columns and `Rows: 3`. The Choice labels and Score
 legend appear once in the schema. The first record batch is empty; it lets
-the schema arrive before any TypeSafe answers.
+the schema arrive before any Jev answers.
 
 To print full answer objects, including named probabilities:
 
@@ -78,19 +77,22 @@ question definitions. See the [Arrow schema](arrow-schema.md) for the format.
 With the server still running:
 
 ```sh
-npm --prefix jevaro-javascript ci
-node jevaro-javascript/example.mjs
+mkdir -p local/javascript-example
+npm install --prefix local/javascript-example jevaro
+node local/javascript-example/node_modules/jevaro/example.mjs
 ```
 
 The [JavaScript example](../jevaro-javascript/example.mjs) uses the same three
-states and questions. It streams the results and resolves Choice labels from
-the schema. This makes three new evaluations; running both examples makes
+states and questions. These commands run the copy installed from npm. It
+streams the results and resolves Choice labels from the schema. This makes
+three new evaluations; running both examples makes
 six evaluations in total and incurs TypeSafe's normal API charges.
 
 ## Next
 
-Edit `STATES` and `QUESTIONS` in the Python example, or `states` and `questions`
-in the JavaScript example. Use `state` for one evaluation and `states` for many.
+Edit `STATES` and `QUESTIONS` in the Python example, or copy the JavaScript
+example into your app and edit its `states` and `questions`. Use `state` for
+one evaluation and `states` for many.
 Stop the server with Ctrl-C when finished.
 
 - [Python SDK](../jevaro-python/README.md)

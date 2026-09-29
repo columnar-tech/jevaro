@@ -17,6 +17,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("dist", type=Path, nargs="?", default=ROOT / "dist")
     parser.add_argument("--python-index-url", help="Install Python packages from this index; dependencies use PyPI")
+    parser.add_argument("--npm-registry-url", help="Install the JavaScript package from this npm registry")
     args = parser.parse_args()
     dist = args.dist.resolve()
     version = check(dist)
@@ -68,12 +69,15 @@ def main():
         lock = json.loads((ROOT / "jevaro-javascript/package-lock.json").read_text())["packages"]
         consumer = {
             "private": True,
-            "dependencies": {"jevaro": (dist / f"jevaro-{version}.tgz").as_uri()},
+            "dependencies": {"jevaro": version if args.npm_registry_url else (dist / f"jevaro-{version}.tgz").as_uri()},
             "devDependencies": {name: lock[f"node_modules/{name}"]["version"]
                                 for name in ("typescript", "@types/node")},
         }
         (javascript / "package.json").write_text(json.dumps(consumer))
-        run("npm", "install", "--ignore-scripts", "--no-audit", "--no-fund", cwd=javascript)
+        npm_install = ["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund"]
+        if args.npm_registry_url:
+            npm_install.extend(("--registry", args.npm_registry_url, "--cache", work / "npm-cache"))
+        run(*npm_install, cwd=javascript)
         shutil.copyfile(javascript / "node_modules/jevaro/example.mjs", javascript / "example.mjs")
         run("node", "--test", "test/client.test.cjs", cwd=javascript)
         run("node", "node_modules/typescript/bin/tsc", "--noEmit", "-p", "test/tsconfig.json", cwd=javascript)

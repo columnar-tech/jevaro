@@ -1,8 +1,8 @@
 # Jevaro release plan
 
 Source is public at [columnar-tech/jevaro](https://github.com/columnar-tech/jevaro).
-The Python packages are published on PyPI. Next: publish the JavaScript SDK
-to npm and finish the GitHub release.
+The Python packages are published on PyPI and the JavaScript SDK is published
+on npm. Configure npm trusted publishing for future releases.
 
 ## Decisions
 
@@ -46,8 +46,7 @@ The examples passed against a local fake TypeSafe API using the installed
 server command. Both Python interfaces, JavaScript, curl, and metadata-only
 file decoding were checked. No paid API calls were made for this verification.
 
-Python installation instructions now use PyPI. Switch the JavaScript
-instructions after npm publication.
+Installation instructions now use PyPI and npm.
 
 ## 3. Verify packages and add CI
 
@@ -94,11 +93,9 @@ Trusted publishing is configured for both Python packages. The manual
 [PyPI workflow](../.github/workflows/pypi.yml) is documented in the
 [release guide](releasing.md#pypi-release).
 
-Confirm maintainer access to npm. Its account identity is separate from GitHub
-organization ownership. Plan the first npm upload through an authenticated
-maintainer, then configure the package's trusted publisher for later releases.
-npm's optional staging feature requires an already existing package, so it is
-not the rehearsal mechanism for Jevaro's first npm upload.
+The first npm upload used the maintainer account `ianmcook`. Configure the
+package's trusted publisher for later releases using the
+[npm release instructions](releasing.md#npm-release).
 
 Done when the maintainer can identify the exact source tag, version, and tested
 artifacts that will be published, and the required registry setup is ready.
@@ -115,9 +112,20 @@ files matched the tested CI artifacts by SHA-256.
 Fresh PyPI installs passed the SDK, server, HTTP, and saved-file checks.
 JavaScript checks used the CI tarball, and API responses were simulated.
 
-Next: publish `jevaro` to npm and verify a fresh registry install. Then add
-the shared `v0.1.0` source tag and GitHub release, with package links and
-release notes.
+[jevaro 0.1.0 on npm](https://www.npmjs.com/package/jevaro/v/0.1.0) was published
+on 2026-09-29 from commit `a07da86835ad3c01f3909f75decc5878c816cc99`, using the
+archive from [CI run 36522701715](https://github.com/columnar-tech/jevaro/actions/runs/36522701715).
+The published SHA-512 integrity hash and SHA-1 matched the tested archive.
+
+Fresh installs from both production registries passed the SDK, TypeScript,
+HTTP, and saved-file checks together. The browser bundle also passed a Chrome
+check for schema delivery, all three types, input order, and cancellation.
+No paid API calls were made for these checks.
+
+Release notes and downloads are in the
+[v0.1.0 GitHub release](https://github.com/columnar-tech/jevaro/releases/tag/v0.1.0).
+Remaining setup: configure the prepared [npm workflow](../.github/workflows/npm.yml)
+as a trusted publisher.
 
 Use trusted publishing for subsequent releases from the configured GitHub
 workflow. Build and test the artifacts before the upload job. Document what to

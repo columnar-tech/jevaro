@@ -121,6 +121,61 @@ If an upload fails, inspect which files reached PyPI before retrying. Retain
 the original artifacts; uploaded filenames cannot be replaced. Existing files
 cause this workflow to fail rather than being skipped.
 
+## npm release
+
+For the first release, sign in with the npm account that will maintain the
+package:
+
+```sh
+npm login --registry=https://registry.npmjs.org
+npm whoami --registry=https://registry.npmjs.org
+```
+
+Direct publication requires two-factor authentication on the account. See
+[npm's publishing instructions](https://docs.npmjs.com/creating-and-publishing-unscoped-public-packages/).
+
+Download `distributions` from a successful CI run to `dist`, then publish the
+tested JavaScript archive:
+
+```sh
+npm publish dist/jevaro-0.1.0.tgz --access public --registry=https://registry.npmjs.org
+```
+
+Verify fresh installs from both production registries:
+
+```sh
+python scripts/test_dist.py dist \
+  --python-index-url https://pypi.org/simple/ \
+  --npm-registry-url https://registry.npmjs.org/
+```
+
+The npm check uses a new cache and installs `jevaro` by version from the
+registry. Keep the original archive and compare its integrity hash with
+`npm view jevaro@0.1.0 dist.integrity`.
+
+For later releases, the manual [npm workflow](../.github/workflows/npm.yml)
+builds and tests the packages, then uploads the same JavaScript archive.
+Configure [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/)
+in the `jevaro` package settings with these values:
+
+| Field | Value |
+| --- | --- |
+| Publisher | GitHub Actions |
+| Organization or user | `columnar-tech` |
+| Repository | `jevaro` |
+| Workflow filename | `npm.yml` |
+| Environment | `npm` |
+| Allowed actions | Enable `npm publish` |
+
+After changing the version and committing it to `main`, run:
+
+```sh
+gh workflow run npm.yml --ref main
+```
+
+The workflow uses OIDC; it needs no npm token. A published version cannot be
+replaced. If an upload fails, check registry state before retrying.
+
 ## Change the version
 
 1. Update `version` in both Python `pyproject.toml` files.
