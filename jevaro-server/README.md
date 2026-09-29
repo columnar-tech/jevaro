@@ -6,11 +6,11 @@ for an example using both SDKs.
 
 ## Run
 
-Requires Python 3.11+. Until the first release, install from the repository root:
+Requires Python 3.11+.
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install -e ./jevaro-server
+.venv/bin/python -m pip install jevaro-server
 export TYPESAFE_API_KEY="your-api-key"
 .venv/bin/jevaro-server
 ```

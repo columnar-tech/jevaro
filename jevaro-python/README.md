@@ -6,11 +6,9 @@ Use TypeSafe-style arguments and read the answers as Arrow. Requires Python
 
 ## Install
 
-Until the first release, run from the repository root:
-
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install -e ./jevaro-python
+.venv/bin/python -m pip install jevaro
 ```
 
 ## Read results
