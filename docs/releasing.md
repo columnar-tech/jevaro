@@ -177,6 +177,9 @@ gh workflow run npm.yml --ref main
 The workflow uses OIDC; it needs no npm token. A published version cannot be
 replaced. If an upload fails, check registry state before retrying.
 
+npm may accept an upload before the version is available. Wait until
+`npm view jevaro@0.2.0 version` succeeds before verifying fresh installs.
+
 ## Change the version
 
 For a Python release, update `version` in both Python `pyproject.toml` files.

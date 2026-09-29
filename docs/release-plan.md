@@ -2,7 +2,7 @@
 
 Source is public at [columnar-tech/jevaro](https://github.com/columnar-tech/jevaro).
 The Python packages are published on PyPI and the JavaScript SDK is published
-on npm. Configure npm trusted publishing for future releases.
+on npm. Both registries use trusted publishing from GitHub Actions.
 
 ## Decisions
 
@@ -94,8 +94,8 @@ Trusted publishing is configured for both Python packages. The manual
 [PyPI workflow](../.github/workflows/pypi.yml) is documented in the
 [release guide](releasing.md#pypi-release).
 
-The first npm upload used the maintainer account `ianmcook`. Configure the
-package's trusted publisher for later releases using the
+The first npm upload used the maintainer account `ianmcook`. Later releases
+use the configured GitHub trusted publisher. See the
 [npm release instructions](releasing.md#npm-release).
 
 Done when the maintainer can identify the exact source tag, version, and tested
@@ -125,8 +125,6 @@ No paid API calls were made for these checks.
 
 Release notes and downloads are in the
 [v0.1.0 GitHub release](https://github.com/columnar-tech/jevaro/releases/tag/v0.1.0).
-Remaining setup: configure the prepared [npm workflow](../.github/workflows/npm.yml)
-as a trusted publisher.
 
 Use trusted publishing for subsequent releases from the configured GitHub
 workflow. Build and test the artifacts before the upload job. Document what to
@@ -150,6 +148,29 @@ to `0.1.0`. Fresh installs passed the SDK, TypeScript, HTTP, and saved-file chec
 with the npm client at `0.1.0`.
 
 Downloads are in the [v0.1.1 GitHub release](https://github.com/columnar-tech/jevaro/releases/tag/v0.1.1).
+
+## 0.2.0
+
+All three packages were published on 2026-09-29:
+[Python SDK](https://pypi.org/project/jevaro/0.2.0/),
+[server](https://pypi.org/project/jevaro-server/0.2.0/), and
+[JavaScript SDK](https://www.npmjs.com/package/jevaro/v/0.2.0).
+
+The [PyPI workflow](https://github.com/columnar-tech/jevaro/actions/runs/36584979604)
+published from `5581a65b07d6fd1bc5674a0f22690e809a7fe28c`.
+The [npm workflow](https://github.com/columnar-tech/jevaro/actions/runs/36585686389)
+published from `110ed04308eefc7033a455ac96b8ea570436617d`, which fixes the
+publishing command's archive path. Package contents are unchanged between
+these commits. npm trusted publishing is now configured for `npm.yml` and
+the `npm` environment.
+
+All four compatibility jobs passed. Fresh installs from both registries
+passed the SDK, TypeScript, HTTP, and saved-file checks. Published READMEs
+match the source; all Python SHA-256 hashes and the npm archive's SHA-512
+and SHA-1 hashes match the tested files. API responses were simulated.
+
+The source tag and tested archives are in the
+[v0.2.0 GitHub release](https://github.com/columnar-tech/jevaro/releases/tag/v0.2.0).
 
 ## References checked for this plan
 
