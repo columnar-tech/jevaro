@@ -42,7 +42,7 @@ def main():
                 with pa.ipc.open_stream(output) as reader:
                     assert reader.read_all().num_rows == 3
                 decoded = subprocess.run(
-                    [sys.executable, str(root / "read_results.py"), str(output)],
+                    [sys.executable, str(root / "scripts/read_results.py"), str(output)],
                     capture_output=True, text=True, timeout=10, check=True,
                 )
                 assert len(decoded.stdout.splitlines()) == 3

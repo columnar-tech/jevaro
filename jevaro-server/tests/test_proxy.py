@@ -16,6 +16,7 @@ import pyarrow as pa
 import uvicorn
 from jevaro import AsyncTypeSafeClient, Choice, Noul, Score, TypeSafeClient
 from jevaro_server.app import create_app
+from jevaro_server.arrow import schema_for
 
 from fake_upstream import Upstream
 
@@ -80,11 +81,20 @@ class ProxyTests(unittest.TestCase):
         self.assertLessEqual(self.upstream.peak, 3)
         self.assertTrue(all(self.upstream.auth_matches))
         self.assertIsNone(table.schema.metadata)
+        expected_metadata = {
+            "department": {"labels": ["returns", "other"]},
+            "urgency": {"legend": [{"when": "later"}, ["today"]]},
+            "refund": {},
+        }
         for field in table.schema:
             self.assertFalse(field.nullable)
             metadata = json.loads(field.metadata[b"ARROW:extension:metadata"])
-            self.assertEqual(metadata["version"], 2)
-            self.assertNotIn("question", metadata)
+            self.assertEqual(metadata, expected_metadata[field.name])
+        for field in schema_for(QUESTIONS):
+            extension = field.type
+            self.assertEqual(type(extension).__arrow_ext_deserialize__(
+                extension.storage_type, extension.__arrow_ext_serialize__(),
+            ), extension)
         choice = table.schema.field("department")
         self.assertEqual(choice.type.field("choice").type, pa.uint8())
         self.assertFalse(choice.type.field("probabilities").nullable)
@@ -194,7 +204,7 @@ class ProxyTests(unittest.TestCase):
             with pa.ipc.open_stream(output) as reader:
                 self.assertEqual(reader.read_all().num_rows, 3)
             decoded = subprocess.run(
-                [sys.executable, str(root / "read_results.py"), str(output)],
+                [sys.executable, str(root / "scripts/read_results.py"), str(output)],
                 capture_output=True, text=True, timeout=10,
             )
             self.assertEqual(decoded.returncode, 0, decoded.stderr)

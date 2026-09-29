@@ -1,2 +1,0 @@
-typesafe-sdk==0.7.2
-pyarrow==25.0.1

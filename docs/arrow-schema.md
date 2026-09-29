@@ -4,8 +4,9 @@ Jevaro returns an Arrow IPC stream with one column per question and one row
 per state. All columns, struct members, and list elements are non-nullable.
 Row position matches the input state position.
 
-The first batch is empty. Each later batch contains one row. Save the stream
-with an `.arrows` suffix and read it with `pyarrow.ipc.open_stream`.
+The stream starts with the schema and a zero-row batch so readers can open
+before answers arrive. Each later batch contains one result row. Save the
+stream with an `.arrows` suffix and read it with `pyarrow.ipc.open_stream`.
 
 ## Extension metadata
 
@@ -20,9 +21,6 @@ Readers without these extension classes see the physical types and metadata.
 The Jevaro SDKs use this representation; extension registration is not required.
 There is no top-level schema metadata.
 
-The current metadata version is `2`. This is a format version, separate from
-the package version `0.1.0`.
-
 ## Choice
 
 ```text
@@ -34,7 +32,7 @@ struct<
 ```
 
 ```json
-{"version":2,"labels":["returns","shipping","billing","other"]}
+{"labels":["returns","shipping","billing","other"]}
 ```
 
 `N` is the number of labels, from 1 to 255. `choice` is a zero-based index:
@@ -56,7 +54,7 @@ struct<
 ```
 
 ```json
-{"version":2,"legend":["Can wait","Within a few days","Today"]}
+{"legend":["Can wait","Within a few days","Today"]}
 ```
 
 `N` is the number of levels, from 2 to 10. A level's index in `legend` is its
@@ -69,10 +67,10 @@ keys are strings; the Python SDK's original answer objects use integer keys.
 
 ## Noul
 
-Storage is one `float64`. Its metadata is:
+Storage is one `float64`. It has no shared answer metadata:
 
 ```json
-{"version":2}
+{}
 ```
 
 The value is the probability of yes. To reconstruct the answer, wrap it as
@@ -97,12 +95,11 @@ From the repository root, using the file produced by the
 [quickstart](quickstart.md):
 
 ```sh
-.venv/bin/python read_results.py jevaro-results.arrows --limit 3
+.venv/bin/python scripts/read_results.py jevaro-results.arrows --limit 3
 ```
 
-[read_results.py](../read_results.py) needs only PyArrow and the file. It prints
-full answers as JSON lines and accepts both `jevaro.*` and the earlier
-`jev_demo.*` extension names with metadata version 2.
+[read_results.py](../scripts/read_results.py) needs only PyArrow and the file.
+It prints full answers as JSON lines using the extension names and metadata.
 
 To inspect the labels directly:
 

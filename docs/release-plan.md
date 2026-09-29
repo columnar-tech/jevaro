@@ -1,10 +1,8 @@
 # Jevaro release plan
 
-This is the working plan for the first public release. The repository and
-registry packages have not been published as part of this preparation.
-
-Documentation, release files, and CI are ready. Local package checks pass.
-Next: prepare the public repository and run CI on GitHub in stage 4.
+Source is public at [columnar-tech/jevaro](https://github.com/columnar-tech/jevaro).
+The first hosted CI run passed. Registry packages remain unreleased.
+Next: rehearse the registry release in stage 5.
 
 ## Decisions
 
@@ -22,9 +20,7 @@ Next: prepare the public repository and run CI on GitHub in stage 4.
 Registry checks in this planning session returned HTTP 404 for PyPI's `jevaro`
 and `jevaro-server` project endpoints and npm's `jevaro` endpoint. These names
 are not currently listed publicly; the checks do not reserve them or guarantee
-that publication will accept them. Recheck before publishing. GitHub's public
-API also returned 404 for `columnar-tech/jevaro`; authenticated access should be
-checked before creating it, since a private repository can return the same code.
+that publication will accept them. Recheck before publishing.
 
 ## 1. Establish the project identity
 
@@ -35,8 +31,7 @@ checked before creating it, since a private repository can return the same code.
 - [x] Configure each package to include its license and notice in distributions.
 - [x] Verify the resulting Python wheels/source archives and npm tarball in stage 3.
 
-The metadata links point to the intended public repository. They will become
-live after the GitHub publication stage.
+The metadata links point to the public repository.
 
 ## 2. Write the user and contributor documentation
 
@@ -45,15 +40,14 @@ live after the GitHub publication stage.
 - [x] Add a [contributor guide](../CONTRIBUTING.md) with setup and test commands.
 - [x] Use source installation instructions until the registry packages exist.
 - [x] Use absolute cross-package links in registry READMEs.
-- [x] Preserve the [earlier examples](earlier-examples.md); ignore generated data and results.
+- [x] Keep earlier demos, graphics, and generated results in the ignored `local/` folder.
 - [x] Verify source installs, examples, saved files, and offline tests in a clean checkout.
 
 The examples passed against a local fake TypeSafe API using the installed
 server command. Both Python interfaces, JavaScript, curl, and metadata-only
 file decoding were checked. No paid API calls were made for this verification.
 
-Review the public file list and first commit in stage 4. Switch the user
-installation instructions to PyPI and npm after publication.
+Switch the user installation instructions to PyPI and npm after publication.
 
 ## 3. Verify packages and add CI
 
@@ -70,19 +64,17 @@ Local archive checks passed on Python 3.11.14 with Node 20.3.0, and Python
 responses were simulated; no paid calls were made.
 
 CI builds the five files once and tests those same files across Python
-3.11/3.14 and Node 20.3.0/24. The first hosted run remains part of stage 4,
-after pushing the source to GitHub. All packages remain unreleased at `0.1.0`.
+3.11/3.14 and Node 20.3.0/24. All packages remain unreleased at `0.1.0`.
 
 ## 4. Publish the source repository
 
-Initialize the chosen public source layout as a Git repository, review its first
-commit, and create/push `columnar-tech/jevaro`. Set the description and topics,
-enable the issue tracker, and run CI against that commit. Confirm package and
-documentation links resolve. The prepared file list and first commit are the
-reviewable result before making the repository public.
+- [x] Review and commit the public source files.
+- [x] Create and push the public `columnar-tech/jevaro` repository.
+- [x] Set the description to `Jev + Arrow`, add topics, and enable issues.
+- [x] Run the build and all four compatibility jobs on GitHub.
 
-The maintainer will need a GitHub account with permission to create repositories
-in `columnar-tech`. Check existing access before asking for any new setup.
+The [first CI run](https://github.com/columnar-tech/jevaro/actions/runs/36515834264)
+passed. New pushes repeat the checks.
 
 ## 5. Rehearse the registry release
 

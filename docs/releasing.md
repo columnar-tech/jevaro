@@ -54,6 +54,5 @@ The workflow builds and tests only. Registry publishing is a later step in the
 3. Update the [changelog](../CHANGELOG.md), then build and test again.
 4. After the release checks pass, use one source tag, `vX.Y.Z`, for all packages.
 
-Keep the Arrow format version separate. Change it only when storage or decoding
-rules change. For the first release, leave `0.1.0` marked unreleased until the
-packages are published, then record the release date.
+For the first release, leave `0.1.0` marked unreleased until the packages are
+published, then record the release date.

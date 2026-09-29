@@ -9,5 +9,3 @@
 - Streams support cancellation and report incomplete results.
 - TypeSafe's SDK handles upstream retries, including 429 and 529 responses.
 - Examples, metadata-only file reader, package checks, and CI are included.
-
-Arrow metadata uses format version 2, independently of the package version.

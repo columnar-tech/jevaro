@@ -109,7 +109,7 @@ To save a stream, open a writer with `reader.schema` and pass each batch to
 
 ```sh
 .venv/bin/python jevaro-python/example.py --output jevaro-results.arrows
-.venv/bin/python read_results.py jevaro-results.arrows
+.venv/bin/python scripts/read_results.py jevaro-results.arrows
 ```
 
 `read_results.py` reconstructs full answer objects using only the saved schema

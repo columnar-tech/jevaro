@@ -42,7 +42,8 @@ def main():
                             ignore=shutil.ignore_patterns("__pycache__"))
         python_source = archive_files(dist / f"jevaro-{version}.tar.gz")
         (work / "jevaro-python/example.py").write_bytes(python_source[f"jevaro-{version}/example.py"])
-        shutil.copyfile(ROOT / "read_results.py", work / "read_results.py")
+        (work / "scripts").mkdir()
+        shutil.copyfile(ROOT / "scripts/read_results.py", work / "scripts/read_results.py")
 
         javascript = work / "jevaro-javascript"
         shutil.copytree(ROOT / "jevaro-javascript/test", javascript / "test")

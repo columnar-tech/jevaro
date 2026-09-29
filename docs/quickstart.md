@@ -66,7 +66,7 @@ the schema arrive before any TypeSafe answers.
 To print full answer objects, including named probabilities:
 
 ```sh
-.venv/bin/python read_results.py jevaro-results.arrows
+.venv/bin/python scripts/read_results.py jevaro-results.arrows
 ```
 
 This reads only the file. It needs PyArrow, with no API key or original

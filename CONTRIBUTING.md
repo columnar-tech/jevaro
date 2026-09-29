@@ -42,13 +42,6 @@ For an optional live check, set `TYPESAFE_API_KEY` and run:
 This evaluates three states through each SDK, checks a temporary Arrow file,
 and stops its server. It makes six paid evaluations, plus any upstream retries.
 
-The [earlier demo tests](docs/earlier-examples.md) use generated data:
-
-```sh
-.venv/bin/python generate_states.py
-.venv/bin/python -m unittest -v
-```
-
 ## Changes
 
 Keep examples small and writing plain. Update documentation when changing
@@ -57,8 +50,7 @@ request arguments, stream behavior, or configuration. Check the live
 integration.
 
 For protocol changes, check ordering, precision, metadata, cancellation, and
-incomplete streams in both languages. A change to Arrow storage or decoding
-rules needs an explicit format-version decision.
+incomplete streams in both languages.
 
 Before submitting a change, run the relevant tests and describe what changed
 and how it was checked. Keep API keys and generated results out of commits.

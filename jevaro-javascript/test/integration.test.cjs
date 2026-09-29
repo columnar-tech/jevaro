@@ -15,7 +15,7 @@ run("schema arrives while every upstream answer is blocked; cancel closes HTTP",
   const reader = await client.systemOne({ states: [{ id: 100, gate: true }, { id: 101, gate: true }], questions }, { timeout: 2000 });
   const field = reader.schema.fields.find(f => f.name === "department");
   assert.equal(field.metadata.get("ARROW:extension:name"), "jevaro.choice");
-  assert.deepEqual(JSON.parse(field.metadata.get("ARROW:extension:metadata")), { version: 2, labels: ["returns", "other"] });
+  assert.deepEqual(JSON.parse(field.metadata.get("ARROW:extension:metadata")), { labels: ["returns", "other"] });
   assert.equal((await reader.next()).value.numRows, 0);
   await reader.cancel();
 });

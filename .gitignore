@@ -8,7 +8,4 @@ build/
 dist/
 *.arrow
 *.arrows
-/states.txt
-/states_manifest.json
-/parallel_run.json
-/parallel_run.log
+/local/

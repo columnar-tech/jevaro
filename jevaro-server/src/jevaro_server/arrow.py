@@ -18,7 +18,7 @@ def probabilities(size):
 class AnswerType(pa.ExtensionType):
     def __init__(self, storage, **metadata):
         self._metadata = json.dumps(
-            {"version": 2, **metadata}, ensure_ascii=False,
+            metadata, ensure_ascii=False,
             separators=(",", ":"), allow_nan=False,
         ).encode()
         super().__init__(storage, f"jevaro.{self.kind}")
@@ -29,8 +29,6 @@ class AnswerType(pa.ExtensionType):
     @classmethod
     def __arrow_ext_deserialize__(cls, storage, serialized):
         metadata = json.loads(serialized)
-        if metadata.pop("version", None) != 2:
-            raise ValueError("Unsupported Jevaro extension version")
         result = cls(**metadata)
         if not storage.equals(result.storage_type):
             raise ValueError("Storage does not match Jevaro extension metadata")

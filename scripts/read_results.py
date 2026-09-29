@@ -46,7 +46,7 @@ def read_rows(path):
                 continue
             info = json.loads(attributes[b"ARROW:extension:metadata"])
             kind = extension.decode().rsplit(".", 1)[-1]
-            if (info.get("version") != 2 or kind not in ("choice", "score", "noul")
+            if (kind not in ("choice", "score", "noul")
                     or extension not in (f"jev_demo.{kind}".encode(), f"jevaro.{kind}".encode())):
                 raise ValueError(f"Unsupported extension metadata for {field.name!r}")
             metadata[field.name] = kind, info

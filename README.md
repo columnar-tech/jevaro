@@ -32,7 +32,7 @@ In a second terminal at the repository root:
 
 ```sh
 .venv/bin/python jevaro-python/example.py --output jevaro-results.arrows
-.venv/bin/python read_results.py jevaro-results.arrows
+.venv/bin/python scripts/read_results.py jevaro-results.arrows
 ```
 
 This evaluates three customer messages, saves their answers, and prints the
@@ -58,8 +58,7 @@ readers. The server makes parallel upstream calls and uses the TypeSafe SDK's
 retry policy. [Configuration and limits](jevaro-server/README.md#limits)
 describe this first version's behavior.
 
-The [earlier standalone examples](docs/earlier-examples.md) and
-[release plan](docs/release-plan.md) are also available.
+See the [release plan](docs/release-plan.md) for publication progress.
 
 ## License
 
