@@ -62,4 +62,3 @@ updates. CI installs the built packages and tests both SDKs against the proxy.
 The first-release work is tracked in the [release plan](docs/release-plan.md).
 
 Jevaro uses [Apache-2.0](LICENSE). Copyright 2026 Columnar Technologies Inc.
-The bundled TypeSafe skill uses its own [MIT license](.agents/skills/typesafe-ai/LICENSE).
