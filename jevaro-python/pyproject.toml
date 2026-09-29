@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jevaro"
-version = "0.1.0"
-description = "TypeSafe-style Python client for Jevaro Arrow streams"
+version = "0.1.1"
+description = "Send batches of states to Jev and read the answers as Arrow"
 readme = "README.md"
 authors = [{name = "Columnar Technologies Inc."}]
 license = "Apache-2.0"

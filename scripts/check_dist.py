@@ -31,26 +31,29 @@ def check(dist):
                 for directory in ("jevaro-server", "jevaro-python")}
     npm = json.loads((ROOT / "jevaro-javascript/package.json").read_text())
     lock = json.loads((ROOT / "jevaro-javascript/package-lock.json").read_text())
-    versions = {project["version"] for project in projects.values()}
-    versions.update((npm["version"], lock["version"], lock["packages"][""]["version"]))
-    require(len(versions) == 1, "Package versions do not match")
-    version = versions.pop()
-    expected = {f"jevaro-{version}.tgz"}
+    python_versions = {project["version"] for project in projects.values()}
+    require(len(python_versions) == 1, "Python package versions do not match")
+    python_version = python_versions.pop()
+    javascript_version = npm["version"]
+    require(javascript_version == lock["version"] == lock["packages"][""]["version"],
+            "JavaScript package and lockfile versions do not match")
+    expected = {f"jevaro-{javascript_version}.tgz"}
     for project in projects.values():
-        stem = f"{project['name'].replace('-', '_')}-{version}"
+        stem = f"{project['name'].replace('-', '_')}-{python_version}"
         expected.update((f"{stem}.tar.gz", f"{stem}-py3-none-any.whl"))
     actual = {p.name for p in dist.iterdir() if p.is_file()}
     require(actual == expected, f"Expected five release files; missing={expected - actual}, extra={actual - expected}")
 
     for directory, project in projects.items():
         package = project["name"].replace("-", "_")
-        stem = f"{package}-{version}"
+        stem = f"{package}-{python_version}"
         wheel = archive_files(dist / f"{stem}-py3-none-any.whl")
         sdist = archive_files(dist / f"{stem}.tar.gz")
         info = f"{stem}.dist-info"
         for data in (wheel[f"{info}/METADATA"], sdist[f"{stem}/PKG-INFO"]):
             metadata = BytesParser().parsebytes(data)
-            for key, value in (("Name", project["name"]), ("Version", version),
+            for key, value in (("Name", project["name"]), ("Version", python_version),
+                               ("Summary", project["description"]),
                                ("License-Expression", "Apache-2.0"),
                                ("Requires-Python", project["requires-python"]),
                                ("Author", "Columnar Technologies Inc."),
@@ -78,7 +81,7 @@ def check(dist):
             require(sdist[f"{stem}/example.py"] == (ROOT / directory / "example.py").read_bytes(),
                     "Missing or stale Python example")
 
-    javascript = archive_files(dist / f"jevaro-{version}.tgz")
+    javascript = archive_files(dist / f"jevaro-{javascript_version}.tgz")
     files = {"package.json", *npm["files"]}
     require(set(javascript) == {f"package/{name}" for name in files}, "Unexpected npm tarball contents")
     for name in files:
@@ -86,10 +89,10 @@ def check(dist):
                 f"Stale npm file: {name}")
     for name in ("LICENSE", "NOTICE"):
         require(javascript[f"package/{name}"] == (ROOT / name).read_bytes(), f"Wrong npm {name}")
-    print(f"Validated five distributions for {version}")
+    print(f"Validated Python {python_version} and JavaScript {javascript_version} distributions")
     for name in sorted(expected):
         print(f"{hashlib.sha256((dist / name).read_bytes()).hexdigest()}  {name}")
-    return version
+    return python_version, javascript_version
 
 
 if __name__ == "__main__":

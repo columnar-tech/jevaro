@@ -63,7 +63,8 @@ Local archive checks passed on Python 3.11.14 with Node 20.3.0, and Python
 responses were simulated; no paid calls were made.
 
 CI builds the five files once and tests those same files across Python
-3.11/3.14 and Node 20.3.0/24. All packages use version `0.1.0`.
+3.11/3.14 and Node 20.3.0/24. It checks the Python and JavaScript versions
+separately so each registry can receive updates independently.
 
 ## 4. Publish the source repository
 

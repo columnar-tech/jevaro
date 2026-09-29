@@ -20,7 +20,7 @@ def main():
     parser.add_argument("--npm-registry-url", help="Install the JavaScript package from this npm registry")
     args = parser.parse_args()
     dist = args.dist.resolve()
-    version = check(dist)
+    python_version, javascript_version = check(dist)
     env = {key: value for key, value in os.environ.items()
            if key != "PYTHONPATH" and not key.startswith(("TYPESAFE_", "JEVARO_"))}
     env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
@@ -59,8 +59,8 @@ def main():
         for directory in ("jevaro-python", "jevaro-server"):
             shutil.copytree(ROOT / directory / "tests", work / directory / "tests",
                             ignore=shutil.ignore_patterns("__pycache__"))
-        python_source = archive_files(dist / f"jevaro-{version}.tar.gz")
-        (work / "jevaro-python/example.py").write_bytes(python_source[f"jevaro-{version}/example.py"])
+        python_source = archive_files(dist / f"jevaro-{python_version}.tar.gz")
+        (work / "jevaro-python/example.py").write_bytes(python_source[f"jevaro-{python_version}/example.py"])
         (work / "scripts").mkdir()
         shutil.copyfile(ROOT / "scripts/read_results.py", work / "scripts/read_results.py")
 
@@ -69,7 +69,10 @@ def main():
         lock = json.loads((ROOT / "jevaro-javascript/package-lock.json").read_text())["packages"]
         consumer = {
             "private": True,
-            "dependencies": {"jevaro": version if args.npm_registry_url else (dist / f"jevaro-{version}.tgz").as_uri()},
+            "dependencies": {
+                "jevaro": javascript_version if args.npm_registry_url
+                else (dist / f"jevaro-{javascript_version}.tgz").as_uri(),
+            },
             "devDependencies": {name: lock[f"node_modules/{name}"]["version"]
                                 for name in ("typescript", "@types/node")},
         }

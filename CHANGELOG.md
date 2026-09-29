@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1 — release in progress
+
+Python packages only: update the PyPI READMEs and package descriptions to use
+Jev, lead with batching, and link to the server README. Runtime code is unchanged.
+
 ## 0.1.0 — 2026-09-29
 
 The server and Python SDK are available on PyPI. The JavaScript SDK is

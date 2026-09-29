@@ -1,6 +1,7 @@
 # Build and test a release
 
-All three packages use the same version initially. The first release is `0.1.0`.
+The Python packages share a version. The JavaScript SDK can be released
+separately. All three started at `0.1.0`.
 
 ## Build
 
@@ -178,11 +179,10 @@ replaced. If an upload fails, check registry state before retrying.
 
 ## Change the version
 
-1. Update `version` in both Python `pyproject.toml` files.
-2. From `jevaro-javascript`, run `npm version X.Y.Z --no-git-tag-version`.
-   This updates `package.json` and `package-lock.json` together.
-3. Update the [changelog](../CHANGELOG.md), then build and test again.
-4. After the release checks pass, use one source tag, `vX.Y.Z`, for all packages.
+For a Python release, update `version` in both Python `pyproject.toml` files.
+For a JavaScript release, run `npm version X.Y.Z --no-git-tag-version` from
+`jevaro-javascript`; this updates `package.json` and `package-lock.json` together.
 
-Record each registry publication in the changelog. After all three packages
-are published, record the release date and add the shared source tag.
+Update the [changelog](../CHANGELOG.md), then build and test all packages
+together. Run the publishing workflow for each registry whose version changed.
+Record the published versions and release date, then tag the source as `vX.Y.Z`.
