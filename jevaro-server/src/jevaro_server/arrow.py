@@ -126,11 +126,12 @@ def schema_for(questions):
     return pa.schema([required(name, answer_type(q)) for name, q in questions.items()])
 
 
-def answer_batch(schema, response):
-    if set(response.answers) != set(schema.names):
+def answer_batch(schema, responses):
+    if any(set(response.answers) != set(schema.names) for response in responses):
         raise ValueError("Response answer names do not match the questions")
     return pa.RecordBatch.from_arrays(
-        [field.type.array([response.answers[field.name]]) for field in schema], schema=schema,
+        [field.type.array([response.answers[field.name] for response in responses])
+         for field in schema], schema=schema,
     )
 
 

@@ -4,6 +4,12 @@
 
 - The server shares one HTTP/2 connection pool to the TypeSafe API across
   requests, instead of opening new connections for each request.
+- The default `JEVARO_CONCURRENCY` is 256, up from 8. In a live test of
+  10,000 states it raised throughput from 38 to 464 states per second.
+- Each Arrow record batch holds every answer row that is ready in order, not
+  one row per batch.
+- `JEVARO_MAX_RETRIES` sets retries per upstream call. The default is 5; it was
+  the SDK's default of 2.
 
 ## 0.1.1 — 2026-09-29
 

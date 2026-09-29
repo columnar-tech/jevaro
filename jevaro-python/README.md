@@ -30,7 +30,8 @@ with TypeSafeClient() as client:
 ```
 
 The reader is a `pyarrow.RecordBatchReader`. Its schema is available before
-answers arrive. The first batch has zero rows; later batches have one row each.
+answers arrive. The first batch has zero rows; later batches have one or more
+rows each.
 Use `reader.read_all()` to collect a `pyarrow.Table`.
 
 Keep the client open while reading. A context manager closes the HTTP response

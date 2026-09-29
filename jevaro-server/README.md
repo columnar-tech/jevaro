@@ -31,7 +31,8 @@ environment.
 | `--port` | `8000` | Listen port |
 | `TYPESAFE_API_KEY` | Unset | Upstream key when a request has no bearer token |
 | `TYPESAFE_UPSTREAM_URL` | `https://api.typesafe.ai` | Upstream API base URL |
-| `JEVARO_CONCURRENCY` | `8` | Maximum pending calls/results per incoming request; positive integer |
+| `JEVARO_CONCURRENCY` | `256` | Maximum pending calls/results per incoming request; positive integer |
+| `JEVARO_MAX_RETRIES` | `5` | Retries per upstream call after its first attempt; nonnegative integer |
 
 An incoming `Authorization: Bearer <key>` overrides the server's key and is
 forwarded to the TypeSafe API. A request without that header uses the server's key.
@@ -47,8 +48,8 @@ authentication in front of a shared server.
 for the whole batch. Use `state` for a single evaluation.
 
 After validating the request, the server sends the schema and an empty batch
-before starting upstream calls. Each later batch contains one answer row,
-in input order.
+before starting upstream calls. Each later batch holds the next answer row
+plus any later rows that have already finished, in input order.
 
 The response uses `application/vnd.apache.arrow.stream` and has no
 `Content-Length`. It sets `X-Accel-Buffering: no`; configure any reverse proxy
@@ -66,11 +67,16 @@ call delays later rows. Closing the stream cancels pending work; calls already
 sent upstream may still finish and count as API use.
 
 All incoming requests share one connection pool to the TypeSafe API. It uses
-HTTP/2 when available, so parallel calls share a warm connection.
+HTTP/2 when available, so parallel calls share a warm connection. TypeSafe
+allows 100 calls at a time on one HTTP/2 connection, so the server sends at
+most 100 calls at once across all requests; the rest wait in Jevaro. The
+default concurrency is higher than 100 so waiting calls can fill connection
+slots as soon as they free up, while finished rows wait for earlier ones.
 
-Retries use the official TypeSafe SDK's default policy, including backoff for
-429 and 529 responses. Concurrency is per incoming request. This version has
-no shared account rate limiter.
+Retries use the official TypeSafe SDK's retry policy with `JEVARO_MAX_RETRIES`
+retries, including backoff for 429 and 529 responses and dropped connections.
+The SDK stops retrying a call after 30 seconds. Concurrency is per incoming
+request. This version has no shared account rate limiter.
 
 If an upstream call fails after retries, the HTTP stream aborts. Its status
 is already 200 at that point. Readers must consume the stream successfully

@@ -65,7 +65,8 @@ A valid request starts a response with:
 There is no `Content-Length`. HTTP/1.1 uses chunked transfer.
 
 After validating the whole request, Jevaro sends the schema and a zero-row
-batch before starting upstream calls. Each later batch contains one row.
+batch before starting upstream calls. Each later batch holds the next row plus
+any later rows that have already finished.
 Columns follow the question order in the request; rows follow state order,
 even if upstream calls finish out of order. A slow earlier call delays later
 rows. The [schema](arrow-schema.md) holds the shared answer metadata.

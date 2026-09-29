@@ -11,7 +11,7 @@ import pyarrow as pa
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from typesafe_sdk import AsyncTypeSafeClient, Choice, JSONContent, Noul, Score
+from typesafe_sdk import AsyncTypeSafeClient, Choice, JSONContent, Noul, RetryPolicy, Score
 from typesafe_sdk.constants import DEFAULT_TIMEOUT
 
 from .arrow import StreamSink, answer_batch, schema_for
@@ -46,8 +46,15 @@ class Evaluation(BaseModel):
         return self
 
 
+def succeeded(task):
+    return task.done() and not task.cancelled() and task.exception() is None
+
+
 async def ordered_responses(client, states, questions, model, concurrency):
-    """A sliding window bounds running calls AND completed results awaiting their turn."""
+    """Yield runs in input order: the next response plus any later ones already finished.
+
+    A sliding window bounds running calls AND completed results awaiting their turn.
+    """
     remaining = iter(states)
     pending = deque()
 
@@ -65,21 +72,32 @@ async def ordered_responses(client, states, questions, model, concurrency):
             submit()
         while pending:
             # Keep the task in the deque while awaiting it, so cancellation catches it too.
-            response = await pending[0]
+            run = [await pending[0]]
             pending.popleft()
-            yield response
-            submit()
+            # A failed call ends the run, so the rows before it are sent before the stream aborts.
+            while pending and succeeded(pending[0]):
+                run.append(pending.popleft().result())
+            # Refill the window before the run is written, so upstream calls keep going meanwhile.
+            for _ in run:
+                submit()
+            yield run
     finally:
         for task in pending:
             task.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
 
 
-def create_app(*, client_factory=AsyncTypeSafeClient, transport=None, concurrency=None):
+def create_app(*, client_factory=AsyncTypeSafeClient, transport=None, concurrency=None,
+               max_retries=None):
     if concurrency is None:
-        concurrency = int(os.environ.get("JEVARO_CONCURRENCY", "8"))
+        concurrency = int(os.environ.get("JEVARO_CONCURRENCY", "256"))
     if isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency < 1:
         raise ValueError("JEVARO_CONCURRENCY must be a positive integer")
+    if max_retries is None:
+        max_retries = int(os.environ.get("JEVARO_MAX_RETRIES", "5"))
+    if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
+        raise ValueError("JEVARO_MAX_RETRIES must be a nonnegative integer")
+    retry = RetryPolicy(max_retries=max_retries)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -129,14 +147,14 @@ def create_app(*, client_factory=AsyncTypeSafeClient, transport=None, concurrenc
                 client = client_factory(
                     api_key=api_key,
                     base_url=os.environ.get("TYPESAFE_UPSTREAM_URL", "https://api.typesafe.ai"),
-                    http_client=app.state.http_client,
+                    http_client=app.state.http_client, retry=retry,
                 )
                 responses = ordered_responses(
                     client, states, body.questions, body.model, concurrency,
                 )
                 try:
-                    async for response in responses:
-                        writer.write_batch(answer_batch(schema, response))
+                    async for run in responses:
+                        writer.write_batch(answer_batch(schema, run))
                         yield sink.drain()
                 finally:
                     await responses.aclose()

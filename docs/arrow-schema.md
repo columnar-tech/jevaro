@@ -6,7 +6,7 @@ Row position matches the input state position.
 
 PyArrow writes the schema with the first batch, so we send a zero-row batch
 to make the schema available before any answers arrive. Each later batch
-contains one result row. Save the stream with an `.arrows` suffix and read
+contains one or more result rows. Save the stream with an `.arrows` suffix and read
 it with `pyarrow.ipc.open_stream`.
 
 ## Extension metadata

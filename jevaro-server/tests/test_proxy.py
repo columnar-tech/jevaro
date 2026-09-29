@@ -35,11 +35,11 @@ class ProxyTests(unittest.TestCase):
         self.socket = socket.socket()
         self.socket.bind(("127.0.0.1", 0))
         self.base_url = f"http://127.0.0.1:{self.socket.getsockname()[1]}"
-        self.server = uvicorn.Server(uvicorn.Config(
-            create_app(client_factory=self.upstream.client, transport=self.upstream.transport,
-                       concurrency=3),
-            log_level="critical", access_log=False,
-        ))
+        with patch.dict(os.environ):
+            os.environ.pop("JEVARO_MAX_RETRIES", None)  # Test the default retry count.
+            app = create_app(client_factory=self.upstream.client, transport=self.upstream.transport,
+                             concurrency=3)
+        self.server = uvicorn.Server(uvicorn.Config(app, log_level="critical", access_log=False))
         self.thread = threading.Thread(target=self.server.run, kwargs={"sockets": [self.socket]}, daemon=True)
         self.thread.start()
         self.until(lambda: self.server.started)
@@ -154,13 +154,38 @@ class ProxyTests(unittest.TestCase):
             self.assertEqual(reader.read_all()["refund"].to_pylist(), [0.011, 0.012])
         self.assertEqual(self.upstream.attempts[11], 3)
 
-    def test_failure_aborts_instead_of_finishing_a_partial_stream(self):
-        with self.client.system_one(states=[{"id": 0}, {"id": 1, "statuses": [401]}], questions=QUESTIONS) as reader:
+    def test_five_retries_by_default_then_abort(self):
+        with self.client.system_one(state={"id": 21, "statuses": [503] * 5}, questions=QUESTIONS) as reader:
+            self.assertEqual(reader.read_all()["refund"].to_pylist(), [0.021])
+        self.assertEqual(self.upstream.attempts[21], 6)
+        with self.client.system_one(state={"id": 22, "statuses": [503] * 6}, questions=QUESTIONS) as reader:
+            with self.assertRaises((httpx2.HTTPError, OSError, pa.ArrowInvalid)):
+                reader.read_all()
+        self.assertEqual(self.upstream.attempts[22], 6)
+
+    def test_max_retries_validation(self):
+        create_app(max_retries=0)
+        for value in (-1, True, 1.5):
+            with self.assertRaises(ValueError):
+                create_app(max_retries=value)
+        with patch.dict(os.environ, {"JEVARO_MAX_RETRIES": "-1"}), self.assertRaises(ValueError):
+            create_app()
+
+    def test_finished_rows_share_a_batch(self):
+        states = [{"id": 0, "delay": 0.1}, {"id": 1}, {"id": 2}]
+        with self.client.system_one(states=states, questions=QUESTIONS) as reader:
+            batches = list(reader)
+        self.assertEqual([batch.num_rows for batch in batches], [0, 3])
+        self.assertEqual(pa.Table.from_batches(batches)["refund"].to_pylist(), [0.0, 0.001, 0.002])
+
+    def test_failure_aborts_after_sending_the_rows_before_it(self):
+        states = [{"id": 0, "delay": 0.1}, {"id": 1}, {"id": 2, "statuses": [401]}]
+        with self.client.system_one(states=states, questions=QUESTIONS) as reader:
             self.assertEqual(next(reader).num_rows, 0)
-            self.assertEqual(next(reader).num_rows, 1)
+            self.assertEqual(next(reader)["refund"].to_pylist(), [0.0, 0.001])
             with self.assertRaises((httpx2.HTTPError, OSError, pa.ArrowInvalid)):
                 next(reader)
-        self.assertEqual(self.upstream.attempts[1], 1)
+        self.assertEqual(self.upstream.attempts[2], 1)
 
     def test_async_client(self):
         async def run():

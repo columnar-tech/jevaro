@@ -40,7 +40,7 @@ For CommonJS, use `const { TypeSafeClient, noul } = require("jevaro")`.
 
 The result is an Apache Arrow `AsyncRecordBatchStreamReader`. The schema
 arrives before answers. The first batch has zero rows; later batches have one
-row each. `await reader.readAll()` collects an array of record batches.
+or more rows each. `await reader.readAll()` collects an array of record batches.
 
 Full iteration releases the response. Breaking a `for await` loop cancels it.
 Call `reader.cancel()` if you open a reader without iterating it. There is no

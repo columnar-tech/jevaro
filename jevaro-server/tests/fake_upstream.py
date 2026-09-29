@@ -4,9 +4,10 @@ import asyncio
 import json
 import threading
 from collections import Counter
+from dataclasses import replace
 
 import httpx2
-from typesafe_sdk import AsyncTypeSafeClient, RetryPolicy
+from typesafe_sdk import AsyncTypeSafeClient
 
 from jevaro_server.app import create_app
 
@@ -24,10 +25,11 @@ class Upstream:
         self.gate = threading.Event()
         self.transport = httpx2.MockTransport(self.handle)
 
-    def client(self, **kwargs):
+    def client(self, *, retry, **kwargs):
         self.http_clients.append(kwargs["http_client"])
+        # Keep the server's retry count; skip real backoff delays.
         return AsyncTypeSafeClient(
-            **kwargs, retry=RetryPolicy(backoff_initial=0.001, backoff_jitter=0),
+            **kwargs, retry=replace(retry, backoff_initial=0.001, backoff_jitter=0),
         )
 
     async def handle(self, request):
