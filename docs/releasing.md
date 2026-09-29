@@ -43,8 +43,39 @@ tests those same files on Python 3.11 and 3.14 with Node 20.3.0 and 24. Checks
 run on pushes, pull requests, and manual runs. Download the `distributions`
 artifact from a successful run to get the five tested release files.
 
-The workflow builds and tests only. Registry publishing is a later step in the
-[release plan](release-plan.md).
+CI also runs as part of the manual TestPyPI workflow below.
+
+## TestPyPI rehearsal
+
+The [TestPyPI workflow](../.github/workflows/testpypi.yml) builds and tests the
+packages using CI, then uploads the same Python wheels and source archives.
+It runs manually from `main` and uses the GitHub environment `testpypi`.
+
+In [TestPyPI's publishing settings](https://test.pypi.org/manage/account/publishing/),
+add two pending publishers under GitHub. Use these values for each:
+
+| Field | Value |
+| --- | --- |
+| PyPI project name | `jevaro`, then `jevaro-server` |
+| Owner | `columnar-tech` |
+| Repository name | `jevaro` |
+| Workflow name | `testpypi.yml` |
+| Environment name | `testpypi` |
+
+This uses [trusted publishing](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/);
+no API token is needed. After both publishers are registered, run:
+
+```sh
+gh workflow run testpypi.yml --ref main
+```
+
+Download the run's `distributions` artifact to retain the tested files. Verify
+fresh installs of `jevaro` and `jevaro-server` from TestPyPI with `--no-deps`,
+installing their dependencies from ordinary PyPI separately.
+
+If an upload fails, check which files reached TestPyPI before retrying. Preserve
+the original artifacts; an uploaded filename cannot be replaced. This workflow
+does not skip existing files.
 
 ## Change the version
 

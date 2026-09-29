@@ -1,0 +1,39 @@
+name: TestPyPI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testpypi
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.repository == 'columnar-tech/jevaro' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: distributions
+          path: dist
+      - name: Select Python distributions
+        run: |
+          mkdir python-dist
+          cp dist/*.whl dist/*.tar.gz python-dist/
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: python-dist/
+          print-hash: true

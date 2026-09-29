@@ -82,6 +82,10 @@ Confirm maintainer access to PyPI, TestPyPI, and npm. These account identities
 are separate from GitHub organization ownership. Use the registry's normal
 login/2FA flow when needed.
 
+The manual [TestPyPI workflow](../.github/workflows/testpypi.yml) is ready.
+Register its two pending publishers using the settings in the
+[release guide](releasing.md#testpypi-rehearsal), then run it.
+
 Upload the Python distributions to TestPyPI and install them into a fresh
 environment. Install their dependencies from ordinary PyPI separately; fetch
 Jevaro itself from TestPyPI with `--no-deps`. For JavaScript, install and test
