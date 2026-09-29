@@ -75,8 +75,15 @@ gh workflow run testpypi.yml --ref main
 ```
 
 Download the run's `distributions` artifact to retain the tested files. Verify
-fresh installs of `jevaro` and `jevaro-server` from TestPyPI with `--no-deps`,
-installing their dependencies from ordinary PyPI separately.
+fresh installs from TestPyPI:
+
+```sh
+python scripts/test_dist.py dist --python-index-url https://test.pypi.org/simple/
+```
+
+This installs `jevaro` and `jevaro-server` from TestPyPI with `--no-deps`,
+installs dependencies from ordinary PyPI, and runs the same offline tests.
+The JavaScript package is still installed from its local tarball.
 
 If an upload fails, check which files reached TestPyPI before retrying. Preserve
 the original artifacts; an uploaded filename cannot be replaced. This workflow

@@ -1,6 +1,7 @@
-"""Install release files in a fresh environment and run offline API tests."""
+"""Install release packages in a fresh environment and run offline API tests."""
 
 import argparse
+from email.parser import BytesParser
 import json
 import os
 from pathlib import Path
@@ -15,7 +16,9 @@ from check_dist import ROOT, archive_files, check
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("dist", type=Path, nargs="?", default=ROOT / "dist")
-    dist = parser.parse_args().dist.resolve()
+    parser.add_argument("--python-index-url", help="Install Python packages from this index; dependencies use PyPI")
+    args = parser.parse_args()
+    dist = args.dist.resolve()
     version = check(dist)
     env = {key: value for key, value in os.environ.items()
            if key != "PYTHONPATH" and not key.startswith(("TYPESAFE_", "JEVARO_"))}
@@ -31,7 +34,22 @@ def main():
         run(sys.executable, "-m", "venv", work / ".venv")
         binaries = work / ".venv" / ("Scripts" if os.name == "nt" else "bin")
         python = binaries / ("python.exe" if os.name == "nt" else "python")
-        run(python, "-m", "pip", "install", *sorted(dist.glob("*.whl")))
+        wheels = sorted(dist.glob("*.whl"))
+        if args.python_index_url:
+            dependencies = set()
+            packages = []
+            for wheel in wheels:
+                metadata = next(data for name, data in archive_files(wheel).items()
+                                if name.endswith(".dist-info/METADATA"))
+                metadata = BytesParser().parsebytes(metadata)
+                dependencies.update(metadata.get_all("Requires-Dist", []))
+                packages.append(f"{metadata['Name']}=={metadata['Version']}")
+            run(python, "-m", "pip", "--isolated", "install", "--index-url", "https://pypi.org/simple/",
+                *sorted(dependencies))
+            run(python, "-m", "pip", "--isolated", "install", "--index-url", args.python_index_url,
+                "--no-deps", "--no-cache-dir", *packages)
+        else:
+            run(python, "-m", "pip", "install", *wheels)
         run(python, "-m", "pip", "check")
         run(python, "-I", "-c", "from pathlib import Path; import sys, jevaro, jevaro_server; "
             "assert all(Path(m.__file__).is_relative_to(sys.prefix) for m in (jevaro, jevaro_server))")
