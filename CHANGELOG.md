@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-09-29
+
+All three packages are released at `0.2.0`.
 
 - The server shares one HTTP/2 connection pool to the TypeSafe API across
   requests, instead of opening new connections for each request.
@@ -10,6 +12,10 @@
   one row per batch.
 - `JEVARO_MAX_RETRIES` sets retries per upstream call. The default is 5; it was
   the SDK's default of 2.
+- A standalone browser example submits batches and displays streaming Arrow
+  results, including Choice labels and Score legends from the schema.
+- READMEs explain Jevaro as an experimental batching proxy. Python package
+  examples use `uv` and `uvx`.
 
 ## 0.1.1 — 2026-09-29
 

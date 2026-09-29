@@ -1,20 +1,30 @@
 # Jevaro Python SDK
 
-Send a batch of states and one set of questions to [Jev](https://docs.typesafe.ai/)
-through a [Jevaro server](https://github.com/columnar-tech/jevaro/blob/main/jevaro-server/README.md).
-Read the answers as a PyArrow stream, in input order.
+Send a batch of states and one shared set of questions to [Jev](https://docs.typesafe.ai/)
+through the [Jevaro batching proxy](https://github.com/columnar-tech/jevaro/blob/main/jevaro-server/README.md)
+and read the answers in input order as an [Apache Arrow](https://arrow.apache.org/)
+stream using PyArrow.
+
+Part of [Jevaro](https://github.com/columnar-tech/jevaro), an experiment in bulk
+inference. The batching proxy handles concurrent API calls, retries, and
+conversion from JSON to Arrow. This SDK returns a reader with one row per
+state and one column per question.
 
 Requires Python 3.11+ and a running Jevaro server. Start with the
 [quickstart](https://github.com/columnar-tech/jevaro/blob/main/docs/quickstart.md).
 
 ## Install
 
+In your Python project, add the SDK with [uv](https://docs.astral.sh/uv/concepts/projects/dependencies/):
+
 ```sh
-python3 -m venv .venv
-.venv/bin/python -m pip install jevaro
+uv add jevaro
 ```
 
 ## Read results
+
+Save this as `example.py`. In your project, run `uv run example.py`; for a
+standalone script, run `uv run --with jevaro example.py`.
 
 ```python
 from jevaro import Noul, TypeSafeClient
@@ -101,8 +111,9 @@ Consume a reader from one task at a time.
 
 ## Metadata and files
 
-Choice selections are integer indices into schema labels. Score legends also
-live in schema metadata. See the
+The schema uses Arrow extension metadata for Choice, Noul, and Score.
+Choice selections are integer indices into shared labels, and Score legends
+are stored once in the schema. Noul stores the probability of yes. See the
 [Arrow schema](https://github.com/columnar-tech/jevaro/blob/main/docs/arrow-schema.md)
 for decoding rules. `batch.to_pylist()` exposes these storage values.
 
@@ -110,8 +121,8 @@ To save a stream, open a writer with `reader.schema` and pass each batch to
 `writer.write_batch(batch)`. The bundled example does this:
 
 ```sh
-.venv/bin/python jevaro-python/example.py --output jevaro-results.arrows
-.venv/bin/python scripts/read_results.py jevaro-results.arrows
+uv run --with jevaro jevaro-python/example.py --output jevaro-results.arrows
+uv run --with pyarrow scripts/read_results.py jevaro-results.arrows
 ```
 
 `read_results.py` reconstructs full answer objects using only the saved schema
@@ -125,8 +136,8 @@ Unexpected row counts raise `OSError`.
 
 This SDK implements System One evaluation with Arrow results. Model listing,
 custom JSON response models, usage objects, and the official SDK's error
-classes are outside its API. Per-state retries happen at the proxy; the SDK
-does not retry an entire batch.
+classes are outside its API. Per-state retries happen at the batching proxy;
+the SDK does not retry an entire batch.
 
 See [Contributing](https://github.com/columnar-tech/jevaro/blob/main/CONTRIBUTING.md)
 for tests.

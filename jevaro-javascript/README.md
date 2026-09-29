@@ -1,8 +1,14 @@
 # Jevaro JavaScript SDK
 
-Send a batch of states and one set of questions to [Jev](https://docs.typesafe.ai/)
-through a [Jevaro server](https://github.com/columnar-tech/jevaro/blob/main/jevaro-server/README.md).
-Read the answers as an Arrow stream, in input order.
+Send a batch of states and one shared set of questions to [Jev](https://docs.typesafe.ai/)
+through the [Jevaro batching proxy](https://github.com/columnar-tech/jevaro/blob/main/jevaro-server/README.md)
+and read the answers in input order as an [Apache Arrow](https://arrow.apache.org/)
+stream.
+
+Part of [Jevaro](https://github.com/columnar-tech/jevaro), an experiment in bulk
+inference. The batching proxy handles concurrent API calls, retries, and
+conversion from JSON to Arrow. This SDK returns a reader with one row per
+state and one column per question.
 
 Works in modern browsers and Node.js 20.3+. Requires a running Jevaro server.
 ESM imports, CommonJS, and TypeScript are supported; browsers can use a bundler
@@ -107,6 +113,7 @@ reading the whole response.
 
 ## Metadata
 
+The schema uses Arrow extension metadata for Choice, Noul, and Score.
 Capture `reader.schema` before iteration; Arrow may clear it when the reader
 closes. Choice selections index the field's shared labels:
 
@@ -118,6 +125,8 @@ const { labels } = JSON.parse(field.metadata.get("ARROW:extension:metadata"));
 ```
 
 Score legends and probability positions also come from field metadata.
+Labels and legends are stored once in the schema. Noul stores the probability
+of yes.
 See the [Arrow schema](https://github.com/columnar-tech/jevaro/blob/main/docs/arrow-schema.md).
 
 ## Errors and compatibility
@@ -128,8 +137,8 @@ Transport, decoding, and row-count errors reject while reading.
 
 This SDK implements System One evaluation with Arrow results. Model listing,
 JSON answer objects, `APIPromise` helpers, and the official SDK's retry/error
-API are outside its API. Per-state retries happen at the proxy; this SDK does
-not retry an entire batch.
+API are outside its API. Per-state retries happen at the batching proxy;
+this SDK does not retry an entire batch.
 
 See [Contributing](https://github.com/columnar-tech/jevaro/blob/main/CONTRIBUTING.md)
 for tests.

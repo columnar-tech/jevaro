@@ -1,11 +1,15 @@
 # Jevaro browser example
 
-A single [HTML file](index.html) with editable JSON states and questions.
-Submit a batch and watch the Arrow results arrive in a table. Expand Choice
-and Score cells for confidence, probabilities, and the Score legend.
+A single [HTML file](index.html) with editable JSON states and questions,
+and an [Apache Arrow](https://arrow.apache.org/) result viewer.
+
+Submit a batch to the [Jevaro batching proxy](https://github.com/columnar-tech/jevaro/blob/main/jevaro-server/README.md)
+and watch answers from [Jev](https://docs.typesafe.ai/) arrive in input order.
+Each state becomes a row and each question a column. Expand Choice and Score
+cells for confidence, probabilities, and the Score legend.
 Labels and legends come from the Arrow schema metadata.
 
-The script and styles are in the page. It loads `jevaro@0.1.0` from
+The script and styles are in the page. It loads `jevaro@0.2.0` from
 [esm.sh](https://esm.sh/); no build step is needed.
 
 ## Run
@@ -13,7 +17,7 @@ The script and styles are in the page. It loads `jevaro@0.1.0` from
 Use Python 3.11+, Node.js with `npx`, and a modern browser. Run these commands
 from the repository root.
 
-In one terminal, install and start Jevaro. This wrapper enables
+In one terminal, install and start the Jevaro batching proxy. This wrapper enables
 [CORS](https://fastapi.tiangolo.com/tutorial/cors/) for the page on port 3000.
 If Jevaro is already running on port 8000, stop it first with Ctrl+C and
 restart it with this block. The plain `jevaro-server` command does not

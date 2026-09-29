@@ -235,7 +235,7 @@
   });
 
   try {
-    ({ TypeSafeClient } = await import("https://esm.sh/jevaro@0.1.0?standalone&target=es2022"));
+    ({ TypeSafeClient } = await import("https://esm.sh/jevaro@0.2.0?standalone&target=es2022"));
     $("submit").disabled = false;
     $("status").textContent = "Ready.";
   } catch (error) {

@@ -1,16 +1,23 @@
 # Jevaro
 
-Evaluate batches of states with [Jev](https://docs.typesafe.ai/) and read the
-answers as an [Apache Arrow](https://arrow.apache.org/) stream.
+A Python batching proxy for [Jev](https://docs.typesafe.ai/) that returns
+[Apache Arrow](https://arrow.apache.org/) streams, with Python and JavaScript SDKs.
 
-Send one set of questions and a batch of states in one request. Jevaro sends
-the Arrow schema first, calls the TypeSafe API for each state in parallel, and
-streams answers in input order. Choice labels and Score legends are stored
-once in the schema.
+Jevaro is an experiment in bulk inference: ask the same questions about many
+independent states in one client request. The
+[TypeSafe API](https://docs.typesafe.ai/api) evaluates one state per request.
+Jevaro makes those calls concurrently and converts the JSON answers into an
+Arrow IPC stream, in input order.
+
+The schema arrives before the answers. Each state becomes a row and each
+question a column. Arrow extension types preserve the meaning of Choice,
+Noul, and Score, with shared labels and legends stored once in the schema.
+The resulting Arrow data can go into pandas, Polars, DuckDB, and other Arrow
+tools.
 
 | Package | Purpose |
 | --- | --- |
-| [jevaro-server](jevaro-server/README.md) | Send batches of states to Jev; stream Arrow results |
+| [jevaro-server](jevaro-server/README.md) | Python batching proxy; ordered Arrow IPC streams |
 | [jevaro](jevaro-python/README.md) for Python | Sync and async Arrow readers |
 | [jevaro](jevaro-javascript/README.md) for JavaScript | Async Arrow readers in browsers and Node.js |
 
@@ -56,9 +63,13 @@ same example from JavaScript.
 - [Build and test a release](docs/releasing.md)
 
 Jevaro uses the official TypeSafe question helpers. Its SDKs return Arrow
-readers. The server makes parallel upstream calls and uses the TypeSafe SDK's
-retry policy. [Configuration and limits](jevaro-server/README.md#limits)
-describe this first version's behavior.
+readers. The batching proxy handles concurrent upstream calls, retries,
+ordering, and conversion from JSON to Arrow. See
+[configuration and limits](jevaro-server/README.md#limits) for details.
+
+We’re exploring Arrow input, better adaptation to evolving API rate limits,
+and output record batch sizes. [Open an issue](https://github.com/columnar-tech/jevaro/issues)
+to share ideas.
 
 See the [release plan](docs/release-plan.md) for publication progress.
 

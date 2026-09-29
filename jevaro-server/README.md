@@ -1,27 +1,31 @@
 # Jevaro server
 
-A Python proxy for sending batches of states to [Jev](https://docs.typesafe.ai/)
-in one request and streaming the answers as Arrow.
+A Python batching proxy for [Jev](https://docs.typesafe.ai/) that accepts many
+states in one request and streams the answers as [Apache Arrow](https://arrow.apache.org/).
 
-Send one set of questions for the whole batch. Jevaro makes parallel calls
-to Jev, one per state, and streams the answers in input order. See the
+Jevaro is an experiment in bulk inference. Send a `states` array and one
+shared `questions` map. The batching proxy calls the
+[TypeSafe API](https://docs.typesafe.ai/api) concurrently, once per state,
+and converts the JSON answers into Arrow IPC. The schema arrives first,
+followed by answers in input order: one row per state and one column per
+question.
+
+Arrow extension types preserve Choice, Noul, and Score answers, with shared
+labels and legends stored once in the schema. See the
 [quickstart](https://github.com/columnar-tech/jevaro/blob/main/docs/quickstart.md)
 for an example using both SDKs.
 
 ## Run
 
-Requires Python 3.11+.
+Requires Python 3.11+. Start the server with [uvx](https://docs.astral.sh/uv/guides/tools/):
 
 ```sh
-python3 -m venv .venv
-.venv/bin/python -m pip install jevaro-server
 export TYPESAFE_API_KEY="your-api-key"
-.venv/bin/jevaro-server
+uvx jevaro-server
 ```
 
 The default address is `http://127.0.0.1:8000`. Change it with `--host` and
-`--port`. `python -m jevaro_server` runs the same command in an activated
-environment.
+`--port`, for example `uvx jevaro-server --port 8001`.
 
 ## Configuration
 

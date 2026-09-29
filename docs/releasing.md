@@ -139,7 +139,7 @@ Download `distributions` from a successful CI run to `dist`, then publish the
 tested JavaScript archive:
 
 ```sh
-npm publish dist/jevaro-0.1.0.tgz --access public --registry=https://registry.npmjs.org
+npm publish dist/jevaro-0.2.0.tgz --access public --registry=https://registry.npmjs.org
 ```
 
 Verify fresh installs from both production registries:
@@ -152,7 +152,7 @@ python scripts/test_dist.py dist \
 
 The npm check uses a new cache and installs `jevaro` by version from the
 registry. Keep the original archive and compare its integrity hash with
-`npm view jevaro@0.1.0 dist.integrity`.
+`npm view jevaro@0.2.0 dist.integrity`.
 
 For later releases, the manual [npm workflow](../.github/workflows/npm.yml)
 builds and tests the packages, then uploads the same JavaScript archive.
@@ -180,8 +180,10 @@ replaced. If an upload fails, check registry state before retrying.
 ## Change the version
 
 For a Python release, update `version` in both Python `pyproject.toml` files.
+Update the server's FastAPI version in `jevaro-server/src/jevaro_server/app.py`.
 For a JavaScript release, run `npm version X.Y.Z --no-git-tag-version` from
 `jevaro-javascript`; this updates `package.json` and `package-lock.json` together.
+Update the browser example's CDN version in its HTML file and README.
 
 Update the [changelog](../CHANGELOG.md), then build and test all packages
 together. Run the publishing workflow for each registry whose version changed.

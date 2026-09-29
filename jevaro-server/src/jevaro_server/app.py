@@ -110,7 +110,7 @@ def create_app(*, client_factory=AsyncTypeSafeClient, transport=None, concurrenc
             app.state.http_client = http_client
             yield
 
-    app = FastAPI(title="Jevaro", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Jevaro", version="0.2.0", lifespan=lifespan)
 
     @app.post("/v1/systemone", response_class=StreamingResponse)
     async def system_one(
