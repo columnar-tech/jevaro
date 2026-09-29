@@ -36,4 +36,4 @@ jobs:
           name: distributions
           path: dist
       - name: Publish to npm
-        run: npm publish dist/jevaro-*.tgz --access public --ignore-scripts
+        run: npm publish ./dist/jevaro-*.tgz --access public --ignore-scripts

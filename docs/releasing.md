@@ -139,7 +139,7 @@ Download `distributions` from a successful CI run to `dist`, then publish the
 tested JavaScript archive:
 
 ```sh
-npm publish dist/jevaro-0.2.0.tgz --access public --registry=https://registry.npmjs.org
+npm publish ./dist/jevaro-0.2.0.tgz --access public --registry=https://registry.npmjs.org
 ```
 
 Verify fresh installs from both production registries:
