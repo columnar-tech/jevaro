@@ -10,17 +10,8 @@ Start with the [quickstart](https://github.com/columnar-tech/jevaro/blob/main/do
 
 ## Install
 
-Until the first release, run the bundled example from the repository root:
-
 ```sh
-npm --prefix jevaro-javascript ci
-node jevaro-javascript/example.mjs
-```
-
-To use the SDK in another JavaScript project, install its local directory:
-
-```sh
-npm install /path/to/jevaro/jevaro-javascript
+npm install jevaro
 ```
 
 ## Read results
