@@ -15,15 +15,16 @@ Choice labels and Score legends are stored once in the schema.
 
 ## Start here
 
-Jevaro is preparing its first release. Install from source for now.
 You need Python 3.11+ and a [TypeSafe API key](https://console.typesafe.ai).
 Commands use a Unix shell.
+
+Clone the example scripts, then install the Python packages from PyPI:
 
 ```sh
 git clone https://github.com/columnar-tech/jevaro.git
 cd jevaro
 python3 -m venv .venv
-.venv/bin/python -m pip install -e ./jevaro-server -e ./jevaro-python
+.venv/bin/python -m pip install jevaro-server jevaro
 export TYPESAFE_API_KEY="your-api-key"
 .venv/bin/jevaro-server
 ```

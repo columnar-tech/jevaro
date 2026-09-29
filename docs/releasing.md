@@ -129,5 +129,5 @@ cause this workflow to fail rather than being skipped.
 3. Update the [changelog](../CHANGELOG.md), then build and test again.
 4. After the release checks pass, use one source tag, `vX.Y.Z`, for all packages.
 
-For the first release, leave `0.1.0` marked unreleased until the packages are
-published, then record the release date.
+Record each registry publication in the changelog. After all three packages
+are published, record the release date and add the shared source tag.

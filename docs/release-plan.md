@@ -1,8 +1,8 @@
 # Jevaro release plan
 
 Source is public at [columnar-tech/jevaro](https://github.com/columnar-tech/jevaro).
-CI and the Python TestPyPI rehearsal passed. Production PyPI and npm packages
-remain unreleased. Next: finish registry setup in stage 5.
+The Python packages are published on PyPI. Next: publish the JavaScript SDK
+to npm and finish the GitHub release.
 
 ## Decisions
 
@@ -14,13 +14,12 @@ remain unreleased. Next: finish registry setup in stage 5.
 | Server distribution | PyPI: `jevaro-server`; command: `jevaro-server` |
 | Python SDK distribution | PyPI: `jevaro`; import: `jevaro` |
 | JavaScript SDK distribution | npm: `jevaro`; import/require: `jevaro` |
-| Proposed first release | `0.1.0`, keeping all three packages on the same version initially |
+| First release | `0.1.0`, keeping all three packages on the same version initially |
 | Initial documentation | Markdown in the repository, with READMEs that also work on PyPI/npm |
 
-Registry checks in this planning session returned HTTP 404 for PyPI's `jevaro`
+Initial registry checks returned HTTP 404 for PyPI's `jevaro`
 and `jevaro-server` project endpoints and npm's `jevaro` endpoint. These names
-are not currently listed publicly; the checks do not reserve them or guarantee
-that publication will accept them. Recheck before publishing.
+were not reserved by those checks. Recheck npm before its first publication.
 
 ## 1. Establish the project identity
 
@@ -47,7 +46,8 @@ The examples passed against a local fake TypeSafe API using the installed
 server command. Both Python interfaces, JavaScript, curl, and metadata-only
 file decoding were checked. No paid API calls were made for this verification.
 
-Switch the user installation instructions to PyPI and npm after publication.
+Python installation instructions now use PyPI. Switch the JavaScript
+instructions after npm publication.
 
 ## 3. Verify packages and add CI
 
@@ -90,8 +90,8 @@ package came from the tested tarball. No paid API calls were made.
 The manual [TestPyPI workflow](../.github/workflows/testpypi.yml) and
 [release guide](releasing.md#testpypi-rehearsal) document how to repeat this.
 
-The manual [PyPI workflow](../.github/workflows/pypi.yml) is ready. Register
-its two production publishers using the
+Trusted publishing is configured for both Python packages. The manual
+[PyPI workflow](../.github/workflows/pypi.yml) is documented in the
 [release guide](releasing.md#pypi-release).
 
 Confirm maintainer access to npm. Its account identity is separate from GitHub
@@ -105,10 +105,19 @@ artifacts that will be published, and the required registry setup is ready.
 
 ## 6. Publish and verify 0.1.0
 
-Publish `jevaro-server` and `jevaro` to PyPI and `jevaro` to npm. Install each by
-its public name in a fresh environment, verify imports and the server command,
-and run a small end-to-end example. Add release notes and package links to the
-GitHub release and README.
+[jevaro 0.1.0](https://pypi.org/project/jevaro/0.1.0/) and
+[jevaro-server 0.1.0](https://pypi.org/project/jevaro-server/0.1.0/) were published
+on 2026-09-29 by the
+[PyPI workflow](https://github.com/columnar-tech/jevaro/actions/runs/36520364517),
+from commit `36170aae06a783dfef32baa654938624d0a330f8`. All four published Python
+files matched the tested CI artifacts by SHA-256.
+
+Fresh PyPI installs passed the SDK, server, HTTP, and saved-file checks.
+JavaScript checks used the CI tarball, and API responses were simulated.
+
+Next: publish `jevaro` to npm and verify a fresh registry install. Then add
+the shared `v0.1.0` source tag and GitHub release, with package links and
+release notes.
 
 Use trusted publishing for subsequent releases from the configured GitHub
 workflow. Build and test the artifacts before the upload job. Document what to

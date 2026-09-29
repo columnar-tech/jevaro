@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.1.0 — unreleased
+## 0.1.0 — release in progress
+
+Python packages released on PyPI on 2026-09-29. npm release pending.
 
 - Python proxy accepts one state or many and streams Arrow results in input order.
 - Choice labels and Score legends are shared through Arrow schema metadata.

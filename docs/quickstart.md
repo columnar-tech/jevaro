@@ -4,8 +4,9 @@ Start Jevaro, evaluate three customer messages, and read the Arrow results
 from Python and JavaScript.
 
 You need Python 3.11+, Node.js 20.3+ for the JavaScript example, and a
-[TypeSafe API key](https://console.typesafe.ai). Jevaro is preparing its first
-release, so these instructions install from source. Use a Unix shell.
+[TypeSafe API key](https://console.typesafe.ai). Use a Unix shell.
+The checkout contains the example scripts. Python packages install from PyPI;
+the JavaScript SDK currently installs from source.
 If you already have a checkout, start at its root and skip the clone commands.
 
 ## 1. Start the server
@@ -14,7 +15,7 @@ If you already have a checkout, start at its root and skip the clone commands.
 git clone https://github.com/columnar-tech/jevaro.git
 cd jevaro
 python3 -m venv .venv
-.venv/bin/python -m pip install -e ./jevaro-server -e ./jevaro-python
+.venv/bin/python -m pip install jevaro-server jevaro
 export TYPESAFE_API_KEY="your-api-key"
 .venv/bin/jevaro-server
 ```
