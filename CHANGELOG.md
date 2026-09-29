@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- The server shares one HTTP/2 connection pool to the TypeSafe API across
+  requests, instead of opening new connections for each request.
+
 ## 0.1.1 — 2026-09-29
 
 Python packages only: update the PyPI READMEs and package descriptions to use

@@ -36,7 +36,8 @@ class ProxyTests(unittest.TestCase):
         self.socket.bind(("127.0.0.1", 0))
         self.base_url = f"http://127.0.0.1:{self.socket.getsockname()[1]}"
         self.server = uvicorn.Server(uvicorn.Config(
-            create_app(client_factory=self.upstream.client, concurrency=3),
+            create_app(client_factory=self.upstream.client, transport=self.upstream.transport,
+                       concurrency=3),
             log_level="critical", access_log=False,
         ))
         self.thread = threading.Thread(target=self.server.run, kwargs={"sockets": [self.socket]}, daemon=True)
@@ -131,6 +132,17 @@ class ProxyTests(unittest.TestCase):
                 response = client.post("/v1/systemone", json={"state": "a", "questions": RAW_QUESTIONS})
                 self.assertEqual(response.status_code, 401)
             self.assertEqual(self.upstream.started, [])
+
+    def test_requests_share_one_upstream_pool_until_shutdown(self):
+        for state in ("one", "two"):
+            with self.client.system_one(state=state, questions=QUESTIONS) as reader:
+                self.assertEqual(reader.read_all().num_rows, 1)
+        first, second = self.upstream.http_clients
+        self.assertIs(first, second)
+        self.assertFalse(first.is_closed)
+        self.server.should_exit = True
+        self.thread.join(timeout=5)
+        self.assertTrue(first.is_closed)
 
     def test_question_ids_have_no_reserved_names(self):
         questions = {name: Noul(instructions="Refund?") for name in ("state", "model", "usage")}

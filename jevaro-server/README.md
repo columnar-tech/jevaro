@@ -63,7 +63,10 @@ for the request and result formats.
 The full JSON request is held in memory. Pending calls and completed answers
 waiting for their turn are bounded by `JEVARO_CONCURRENCY`. A slow earlier
 call delays later rows. Closing the stream cancels pending work; calls already
-processed upstream still count as API use.
+sent upstream may still finish and count as API use.
+
+All incoming requests share one connection pool to the TypeSafe API. It uses
+HTTP/2 when available, so parallel calls share a warm connection.
 
 Retries use the official TypeSafe SDK's default policy, including backoff for
 429 and 529 responses. Concurrency is per incoming request. This version has

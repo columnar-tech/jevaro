@@ -3,13 +3,16 @@
 import asyncio
 import os
 from collections import deque
+from contextlib import asynccontextmanager
 from typing import Annotated
 
+import httpx2
 import pyarrow as pa
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typesafe_sdk import AsyncTypeSafeClient, Choice, JSONContent, Noul, Score
+from typesafe_sdk.constants import DEFAULT_TIMEOUT
 
 from .arrow import StreamSink, answer_batch, schema_for
 
@@ -72,12 +75,24 @@ async def ordered_responses(client, states, questions, model, concurrency):
         await asyncio.gather(*pending, return_exceptions=True)
 
 
-def create_app(*, client_factory=AsyncTypeSafeClient, concurrency=None):
+def create_app(*, client_factory=AsyncTypeSafeClient, transport=None, concurrency=None):
     if concurrency is None:
         concurrency = int(os.environ.get("JEVARO_CONCURRENCY", "8"))
     if isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency < 1:
         raise ValueError("JEVARO_CONCURRENCY must be a positive integer")
-    app = FastAPI(title="Jevaro", version="0.1.0")
+
+    @asynccontextmanager
+    async def lifespan(app):
+        # One pool for every incoming request keeps upstream connections warm, and
+        # HTTP/2 multiplexes a batch's parallel calls over one connection. The SDK
+        # inherits this timeout, so match its own default.
+        async with httpx2.AsyncClient(
+            http2=True, timeout=DEFAULT_TIMEOUT, transport=transport,
+        ) as http_client:
+            app.state.http_client = http_client
+            yield
+
+    app = FastAPI(title="Jevaro", version="0.1.0", lifespan=lifespan)
 
     @app.post("/v1/systemone", response_class=StreamingResponse)
     async def system_one(
@@ -109,19 +124,22 @@ def create_app(*, client_factory=AsyncTypeSafeClient, concurrency=None):
                     [field.type.array([]) for field in schema], schema=schema,
                 ))
                 yield sink.drain()
-                async with client_factory(
+                # This request's key over the shared pool. Never close this client:
+                # the SDK would close the shared pool along with it.
+                client = client_factory(
                     api_key=api_key,
                     base_url=os.environ.get("TYPESAFE_UPSTREAM_URL", "https://api.typesafe.ai"),
-                ) as client:
-                    responses = ordered_responses(
-                        client, states, body.questions, body.model, concurrency,
-                    )
-                    try:
-                        async for response in responses:
-                            writer.write_batch(answer_batch(schema, response))
-                            yield sink.drain()
-                    finally:
-                        await responses.aclose()
+                    http_client=app.state.http_client,
+                )
+                responses = ordered_responses(
+                    client, states, body.questions, body.model, concurrency,
+                )
+                try:
+                    async for response in responses:
+                        writer.write_batch(answer_batch(schema, response))
+                        yield sink.drain()
+                finally:
+                    await responses.aclose()
                 writer.close()
                 yield sink.drain()  # Normal completion alone sends the Arrow EOS marker.
             finally:

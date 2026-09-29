@@ -20,12 +20,14 @@ class Upstream:
         self.active = 0
         self.peak = 0
         self.auth_matches = []
+        self.http_clients = []
         self.gate = threading.Event()
+        self.transport = httpx2.MockTransport(self.handle)
 
     def client(self, **kwargs):
+        self.http_clients.append(kwargs["http_client"])
         return AsyncTypeSafeClient(
-            **kwargs, transport=httpx2.MockTransport(self.handle),
-            retry=RetryPolicy(backoff_initial=0.001, backoff_jitter=0),
+            **kwargs, retry=RetryPolicy(backoff_initial=0.001, backoff_jitter=0),
         )
 
     async def handle(self, request):
@@ -81,7 +83,7 @@ class Upstream:
 
 
 upstream = Upstream()
-app = create_app(client_factory=upstream.client, concurrency=3)
+app = create_app(client_factory=upstream.client, transport=upstream.transport, concurrency=3)
 
 
 @app.get("/__test__/stats")
