@@ -4,9 +4,10 @@ Jevaro returns an Arrow IPC stream with one column per question and one row
 per state. All columns, struct members, and list elements are non-nullable.
 Row position matches the input state position.
 
-The stream starts with the schema and a zero-row batch so readers can open
-before answers arrive. Each later batch contains one result row. Save the
-stream with an `.arrows` suffix and read it with `pyarrow.ipc.open_stream`.
+PyArrow writes the schema with the first batch, so we send a zero-row batch
+to make the schema available before any answers arrive. Each later batch
+contains one result row. Save the stream with an `.arrows` suffix and read
+it with `pyarrow.ipc.open_stream`.
 
 ## Extension metadata
 
