@@ -90,13 +90,13 @@ package came from the tested tarball. No paid API calls were made.
 The manual [TestPyPI workflow](../.github/workflows/testpypi.yml) and
 [release guide](releasing.md#testpypi-rehearsal) document how to repeat this.
 
-Confirm maintainer access to production PyPI and npm. These account identities
-are separate from GitHub organization ownership. Use the registry's normal
-login/2FA flow when needed.
+The manual [PyPI workflow](../.github/workflows/pypi.yml) is ready. Register
+its two production publishers using the
+[release guide](releasing.md#pypi-release).
 
-Prepare GitHub Actions trusted publishing for PyPI, which supports a pending
-publisher for a new project. Plan the first npm upload through an authenticated
-maintainer; then configure the package's trusted publisher for later releases.
+Confirm maintainer access to npm. Its account identity is separate from GitHub
+organization ownership. Plan the first npm upload through an authenticated
+maintainer, then configure the package's trusted publisher for later releases.
 npm's optional staging feature requires an already existing package, so it is
 not the rehearsal mechanism for Jevaro's first npm upload.
 

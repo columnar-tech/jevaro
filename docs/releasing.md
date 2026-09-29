@@ -43,7 +43,7 @@ tests those same files on Python 3.11 and 3.14 with Node 20.3.0 and 24. Checks
 run on pushes, pull requests, and manual runs. Download the `distributions`
 artifact from a successful run to get the five tested release files.
 
-CI also runs as part of the manual TestPyPI workflow below.
+CI also runs as part of the manual TestPyPI and PyPI workflows below.
 
 ## TestPyPI rehearsal
 
@@ -88,6 +88,38 @@ The JavaScript package is still installed from its local tarball.
 If an upload fails, check which files reached TestPyPI before retrying. Preserve
 the original artifacts; an uploaded filename cannot be replaced. This workflow
 does not skip existing files.
+
+## PyPI release
+
+The [PyPI workflow](../.github/workflows/pypi.yml) uses the same build and tests
+as TestPyPI. It runs manually from `main` and uploads to production PyPI.
+
+In [PyPI's publishing settings](https://pypi.org/manage/account/publishing/),
+add two pending publishers under GitHub:
+
+| Field | Python SDK | Server |
+| --- | --- | --- |
+| PyPI project name | `jevaro` | `jevaro-server` |
+| Owner | `columnar-tech` | `columnar-tech` |
+| Repository name | `jevaro` | `jevaro` |
+| Workflow name | `pypi.yml` | `pypi.yml` |
+| Environment name | `pypi` | `pypi-server` |
+
+After both publishers are registered, run:
+
+```sh
+gh workflow run pypi.yml --ref main
+```
+
+Download the run's `distributions` artifact and verify fresh registry installs:
+
+```sh
+python scripts/test_dist.py dist --python-index-url https://pypi.org/simple/
+```
+
+If an upload fails, inspect which files reached PyPI before retrying. Retain
+the original artifacts; uploaded filenames cannot be replaced. Existing files
+cause this workflow to fail rather than being skipped.
 
 ## Change the version
 

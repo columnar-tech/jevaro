@@ -1,0 +1,51 @@
+name: PyPI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pypi
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.repository == 'columnar-tech/jevaro' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: check
+    name: Publish ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: jevaro
+            dist-prefix: jevaro
+            environment: pypi
+          - package: jevaro-server
+            dist-prefix: jevaro_server
+            environment: pypi-server
+    environment: ${{ matrix.environment }}
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: distributions
+          path: dist
+      - name: Select Python distributions
+        env:
+          DIST_PREFIX: ${{ matrix.dist-prefix }}
+        run: |
+          mkdir python-dist
+          cp dist/"$DIST_PREFIX"-*.whl dist/"$DIST_PREFIX"-*.tar.gz python-dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: python-dist/
+          print-hash: true
