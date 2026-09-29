@@ -17,9 +17,20 @@ jobs:
 
   publish:
     needs: check
+    name: Publish ${{ matrix.package }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: testpypi
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: jevaro
+            dist-prefix: jevaro
+            environment: testpypi
+          - package: jevaro-server
+            dist-prefix: jevaro_server
+            environment: testpypi-server
+    environment: ${{ matrix.environment }}
     permissions:
       id-token: write
     steps:
@@ -28,9 +39,11 @@ jobs:
           name: distributions
           path: dist
       - name: Select Python distributions
+        env:
+          DIST_PREFIX: ${{ matrix.dist-prefix }}
         run: |
           mkdir python-dist
-          cp dist/*.whl dist/*.tar.gz python-dist/
+          cp dist/"$DIST_PREFIX"-*.whl dist/"$DIST_PREFIX"-*.tar.gz python-dist/
       - name: Publish to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:

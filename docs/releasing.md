@@ -49,18 +49,23 @@ CI also runs as part of the manual TestPyPI workflow below.
 
 The [TestPyPI workflow](../.github/workflows/testpypi.yml) builds and tests the
 packages using CI, then uploads the same Python wheels and source archives.
-It runs manually from `main` and uses the GitHub environment `testpypi`.
+It runs manually from `main`. Each Python package has its own publishing job
+and GitHub environment.
 
 In [TestPyPI's publishing settings](https://test.pypi.org/manage/account/publishing/),
-add two pending publishers under GitHub. Use these values for each:
+add two pending publishers under GitHub:
 
-| Field | Value |
-| --- | --- |
-| PyPI project name | `jevaro`, then `jevaro-server` |
-| Owner | `columnar-tech` |
-| Repository name | `jevaro` |
-| Workflow name | `testpypi.yml` |
-| Environment name | `testpypi` |
+| Field | Python SDK | Server |
+| --- | --- | --- |
+| PyPI project name | `jevaro` | `jevaro-server` |
+| Owner | `columnar-tech` | `columnar-tech` |
+| Repository name | `jevaro` | `jevaro` |
+| Workflow name | `testpypi.yml` | `testpypi.yml` |
+| Environment name | `testpypi` | `testpypi-server` |
+
+The environments must differ: PyPI rejects pending publishers with the same
+owner, repository, workflow, and environment for different project names.
+See [PyPI's tracking issue](https://github.com/pypi/warehouse/issues/16920).
 
 This uses [trusted publishing](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/);
 no API token is needed. After both publishers are registered, run:
