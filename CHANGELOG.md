@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.1 — release in progress
+## 0.1.1 — 2026-09-29
 
 Python packages only: update the PyPI READMEs and package descriptions to use
 Jev, lead with batching, and link to the server README. Runtime code is unchanged.

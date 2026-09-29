@@ -137,6 +137,20 @@ new builds under an already released version.
 Done when users can follow the public README using only GitHub, PyPI, npm,
 and their TypeSafe API key.
 
+## Python 0.1.1
+
+[jevaro 0.1.1](https://pypi.org/project/jevaro/0.1.1/) and
+[jevaro-server 0.1.1](https://pypi.org/project/jevaro-server/0.1.1/) were published
+on 2026-09-29 by [PyPI run 36524266654](https://github.com/columnar-tech/jevaro/actions/runs/36524266654),
+from commit `2f5d90a7fce217fb75abdc6378c7837f21316e03`.
+
+This updates the READMEs and short descriptions on PyPI. The published text
+and all four file hashes match the tested archives. Runtime files are identical
+to `0.1.0`. Fresh installs passed the SDK, TypeScript, HTTP, and saved-file checks
+with the npm client at `0.1.0`.
+
+Downloads are in the [v0.1.1 GitHub release](https://github.com/columnar-tech/jevaro/releases/tag/v0.1.1).
+
 ## References checked for this plan
 
 - [PyPA: packaging projects and distribution metadata](https://packaging.python.org/en/latest/tutorials/packaging-projects/)
