@@ -1,7 +1,11 @@
 # Jevaro server
 
-A Python proxy that evaluates states with TypeSafe and streams the answers
-as Arrow. See the [quickstart](https://github.com/columnar-tech/jevaro/blob/main/docs/quickstart.md)
+A Python proxy for sending batches of states to [Jev](https://docs.typesafe.ai/)
+in one request and streaming the answers as Arrow.
+
+Send one set of questions for the whole batch. Jevaro makes parallel calls
+to Jev, one per state, and streams the answers in input order. See the
+[quickstart](https://github.com/columnar-tech/jevaro/blob/main/docs/quickstart.md)
 for an example using both SDKs.
 
 ## Run
@@ -30,19 +34,21 @@ environment.
 | `JEVARO_CONCURRENCY` | `8` | Maximum pending calls/results per incoming request; positive integer |
 
 An incoming `Authorization: Bearer <key>` overrides the server's key and is
-forwarded to TypeSafe. A request without that header uses the server's key.
+forwarded to the TypeSafe API. A request without that header uses the server's key.
 Jevaro has no separate client access control: keep it local, or put
 authentication in front of a shared server.
 
 `TYPESAFE_BASE_URL` is an SDK setting for reaching Jevaro. The server uses
-`TYPESAFE_UPSTREAM_URL` to reach TypeSafe.
+`TYPESAFE_UPSTREAM_URL` to reach the TypeSafe API.
 
 ## Streaming
 
-`POST /v1/systemone` accepts `state` or a nonempty `states` array and a map of
-questions. After validating the request, the server sends the schema and an
-empty batch before starting upstream calls. Each later batch contains one
-answer row, in input order.
+`POST /v1/systemone` accepts a nonempty `states` array and one `questions` map
+for the whole batch. Use `state` for a single evaluation.
+
+After validating the request, the server sends the schema and an empty batch
+before starting upstream calls. Each later batch contains one answer row,
+in input order.
 
 The response uses `application/vnd.apache.arrow.stream` and has no
 `Content-Length`. It sets `X-Accel-Buffering: no`; configure any reverse proxy

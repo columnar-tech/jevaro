@@ -1,7 +1,10 @@
 # Jevaro Python SDK
 
-Use TypeSafe-style arguments and read the answers as Arrow. Requires Python
-3.11+ and a running Jevaro server. Start with the
+Send a batch of states and one set of questions to [Jev](https://docs.typesafe.ai/)
+through a [Jevaro server](https://github.com/columnar-tech/jevaro/blob/main/jevaro-server/README.md).
+Read the answers as a PyArrow stream, in input order.
+
+Requires Python 3.11+ and a running Jevaro server. Start with the
 [quickstart](https://github.com/columnar-tech/jevaro/blob/main/docs/quickstart.md).
 
 ## Install

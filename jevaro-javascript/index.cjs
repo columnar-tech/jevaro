@@ -16,12 +16,13 @@ class APIError extends Error {
 
 class TypeSafeClient {
   constructor(config = {}) {
-    this.apiKey = config.apiKey ?? process.env.TYPESAFE_API_KEY;
-    this.baseURL = (config.baseURL ?? process.env.TYPESAFE_BASE_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
-    this.defaultModel = config.defaultModel ?? process.env.TYPESAFE_DEFAULT_MODEL ?? "jev-latest";
+    const env = typeof process === "undefined" ? {} : (process.env ?? {});
+    this.apiKey = config.apiKey ?? env.TYPESAFE_API_KEY;
+    this.baseURL = (config.baseURL ?? env.TYPESAFE_BASE_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
+    this.defaultModel = config.defaultModel ?? env.TYPESAFE_DEFAULT_MODEL ?? "jev-latest";
     this.defaultHeaders = config.defaultHeaders;
     this.timeout = config.timeout ?? 60_000;
-    this.fetch = config.fetch ?? globalThis.fetch;
+    this.fetch = config.fetch ?? ((input, init) => globalThis.fetch(input, init));
   }
 
   async systemOne(request, options = {}) {

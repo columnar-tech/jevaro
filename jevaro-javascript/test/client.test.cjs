@@ -1,5 +1,8 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const { readFileSync } = require("node:fs");
+const { createRequire } = require("node:module");
+const vm = require("node:vm");
 const { tableFromArrays, tableToIPC, RecordBatchReader } = require("apache-arrow");
 const { TypeSafeClient, APIError, choice, noul, score } = require("jevaro");
 
@@ -15,6 +18,31 @@ function response(values = [0.12345678901234567]) {
     },
   }), { headers: { "content-type": "application/vnd.apache.arrow.stream" } });
 }
+
+test("runs without process and calls global fetch with its browser receiver", async () => {
+  const entry = require.resolve("jevaro");
+  let sent, browserGlobal;
+  const context = vm.createContext({
+    exports: {}, require: createRequire(entry),
+    Headers, AbortController, AbortSignal, setTimeout, clearTimeout,
+    fetch: async function (url, options) {
+      assert.equal(this, browserGlobal);
+      sent = { url, ...options };
+      return response([0.25, 0.75]);
+    },
+  });
+  browserGlobal = vm.runInContext("globalThis", context);
+  vm.runInContext(readFileSync(entry, "utf8"), context);
+  const client = new context.exports.TypeSafeClient();
+  assert.equal(client.apiKey, undefined);
+  assert.equal(client.defaultModel, "jev-latest");
+  const reader = await client.systemOne({ states: ["one", "two"], questions: { n: noul() } });
+  const values = [];
+  for await (const batch of reader) for (const row of batch) values.push(row.answer);
+  assert.deepEqual(values, [0.25, 0.75]);
+  assert.equal(sent.url, "http://127.0.0.1:8000/v1/systemone");
+  assert.equal(sent.headers.has("authorization"), false);
+});
 
 test("official helpers, ESM exports, TypeSafe arguments and native Arrow reader", async () => {
   let sent;

@@ -1,7 +1,11 @@
 # Jevaro JavaScript SDK
 
-Use TypeSafe-style arguments and read the answers as Arrow. Requires Node.js
-20.3+ and a running Jevaro server. ESM, CommonJS, and TypeScript are supported.
+Send a batch of states and one set of questions to [Jev](https://docs.typesafe.ai/)
+through a [Jevaro server](https://github.com/columnar-tech/jevaro/blob/main/jevaro-server/README.md).
+Read the answers as an Arrow stream, in input order.
+
+Works in modern browsers and Node.js 20.3+. Requires a running Jevaro server.
+ESM imports, CommonJS, and TypeScript are supported; browser apps use a bundler.
 Start with the [quickstart](https://github.com/columnar-tech/jevaro/blob/main/docs/quickstart.md).
 
 ## Install
@@ -13,7 +17,7 @@ npm --prefix jevaro-javascript ci
 node jevaro-javascript/example.mjs
 ```
 
-To use the SDK in another Node project, install its local directory:
+To use the SDK in another JavaScript project, install its local directory:
 
 ```sh
 npm install /path/to/jevaro/jevaro-javascript
@@ -50,6 +54,22 @@ Full iteration releases the response. Breaking a `for await` loop cancels it.
 Call `reader.cancel()` if you open a reader without iterating it. There is no
 client-level `close()` method.
 
+## Browser use
+
+Bundle the import above with your app, then set the server address explicitly:
+
+```javascript
+const client = new TypeSafeClient({ baseURL: window.location.origin });
+```
+
+This assumes your web server forwards `/v1/systemone` to Jevaro without
+buffering. Set `TYPESAFE_API_KEY` on the Jevaro server so the key stays there.
+For a server on a different origin, configure CORS for your app's origin;
+Jevaro does not enable CORS by default.
+
+The browser needs streaming `fetch` and `AbortSignal.any`. Node.js is not
+required at runtime in the browser.
+
 ## Questions and arguments
 
 `choice`, `score`, and `noul` are re-exported from the official TypeSafe SDK.
@@ -80,7 +100,10 @@ and an `AbortSignal` as `signal`. A signal can cancel after the schema arrives.
 | `defaultModel` | `TYPESAFE_DEFAULT_MODEL`, then `jev-latest` |
 | `timeout` | 60,000 milliseconds to receive the schema |
 | `defaultHeaders` | No extra headers |
-| `fetch` | Node's global `fetch` |
+| `fetch` | Global `fetch` |
+
+Environment variable defaults apply in Node.js. In browsers, pass options
+directly to the constructor.
 
 The timeout ends when the schema arrives. Use `signal` to set a deadline for
 reading the whole response.

@@ -1,17 +1,18 @@
 # Jevaro
 
-Evaluate many states with [TypeSafe](https://docs.typesafe.ai/) and read the
+Evaluate batches of states with [Jev](https://docs.typesafe.ai/) and read the
 answers as an [Apache Arrow](https://arrow.apache.org/) stream.
 
-Send one set of questions and a list of states. Jevaro calls TypeSafe for each
-state, sends the Arrow schema first, and streams answer rows in input order.
-Choice labels and Score legends are stored once in the schema.
+Send one set of questions and a batch of states in one request. Jevaro sends
+the Arrow schema first, calls the TypeSafe API for each state in parallel, and
+streams answers in input order. Choice labels and Score legends are stored
+once in the schema.
 
 | Package | Purpose |
 | --- | --- |
-| [jevaro-server](jevaro-server/README.md) | Python HTTP proxy |
+| [jevaro-server](jevaro-server/README.md) | Send batches of states to Jev; stream Arrow results |
 | [jevaro](jevaro-python/README.md) for Python | Sync and async Arrow readers |
-| [jevaro](jevaro-javascript/README.md) for Node.js | Async Arrow readers; ESM, CommonJS, and TypeScript |
+| [jevaro](jevaro-javascript/README.md) for JavaScript | Async Arrow readers in browsers and Node.js |
 
 ## Start here
 
