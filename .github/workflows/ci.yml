@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Build distributions
+        run: |
+          python -m pip install -r requirements-build.txt
+          python -m build --outdir dist jevaro-server
+          python -m build --outdir dist jevaro-python
+          npm pack ./jevaro-javascript --pack-destination dist
+      - name: Check metadata and contents
+        run: |
+          python -m twine check --strict dist/*.whl dist/*.tar.gz
+          python scripts/check_dist.py dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: distributions
+          path: dist/*
+          if-no-files-found: error
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.14']
+        node: ['20.3.0', '24']
+    name: Python ${{ matrix.python }} / Node ${{ matrix.node }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: distributions
+          path: dist
+      - name: Install and test built packages
+        run: python scripts/test_dist.py dist
