@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jevaro browser example</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0 auto; padding: 32px 24px; max-width: 1120px; color: #202b2a; background: #fafaf7; font: 14px/1.6 Verdana, sans-serif; }
+  h1 { margin: 0; font: 40px/1.2 Georgia, serif; }
+  h2 { margin: 24px 0 4px; font-size: 18px; }
+  p { margin: 12px 0 24px; }
+  label { display: block; margin-bottom: 6px; font-weight: bold; }
+  fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+  input, textarea, button { font: inherit; }
+  input, textarea { width: 100%; padding: 10px 12px; border: 1px solid #aab5b0; border-radius: 3px; background: white; color: inherit; }
+  input { max-width: 460px; }
+  textarea { height: 320px; resize: vertical; tab-size: 2; font: 13px/1.6 Menlo, Consolas, monospace; }
+  .editors { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0 16px; }
+  .editors > div { min-width: 0; }
+  button { padding: 9px 20px; border: 1px solid #176354; border-radius: 3px; background: #176354; color: white; cursor: pointer; }
+  button + button { margin-left: 8px; background: transparent; color: #176354; }
+  button:disabled { opacity: .5; cursor: default; }
+  :focus-visible { outline: 2px solid #176354; outline-offset: 3px; }
+  #status { margin: 16px 0 0; }
+  #error { color: #a12525; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; min-width: 680px; border-collapse: collapse; background: white; font-size: 13px; }
+  th, td { padding: 12px; border-bottom: 1px solid #d7ddd9; text-align: left; vertical-align: top; }
+  thead th { background: #edf1ed; }
+  small { display: block; font-weight: normal; }
+  summary { cursor: pointer; }
+  pre { font: 12px/1.6 Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+  @media (max-width: 700px) {
+    body { padding: 24px 16px; }
+    .editors { grid-template-columns: 1fr; }
+    textarea { height: 260px; }
+  }
+</style>
+
+<h1>Jevaro</h1>
+<p>Send a batch of states to Jev. Read the answers as an Arrow stream.</p>
+
+<form id="request">
+  <fieldset id="inputs">
+    <label for="server">Jevaro server</label>
+    <input id="server" type="url" value="http://127.0.0.1:8000" required>
+    <div class="editors">
+      <div>
+        <label for="states">States · JSON array</label>
+        <textarea id="states" spellcheck="false" required>[
+  "The shoes don't fit. Please refund my money today.",
+  "My parcel is marked delivered but isn't here. Please help me find it.",
+  "I was charged twice for my coffee maker. Please fix the duplicate charge this week."
+]</textarea>
+      </div>
+      <div>
+        <label for="questions">Questions · JSON object</label>
+        <textarea id="questions" spellcheck="false" required>{
+  "department": {
+    "type": "choice",
+    "instructions": "Which team should handle this customer message?",
+    "criteria": {
+      "returns": "Returns, exchanges, refunds",
+      "shipping": "Delivery problems",
+      "billing": "Charges and payments",
+      "other": "None of these teams fits"
+    }
+  },
+  "urgency": {
+    "type": "score",
+    "instructions": "How soon does the customer want a resolution?",
+    "criteria": [
+      "No deadline or can wait",
+      "Within the next few days",
+      "Today or immediately"
+    ]
+  },
+  "refund": {
+    "type": "noul",
+    "instructions": "Is the customer requesting a refund?"
+  }
+}</textarea>
+      </div>
+    </div>
+  </fieldset>
+  <button id="submit" type="submit" disabled>Submit</button>
+  <button id="cancel" type="button" disabled>Cancel</button>
+</form>
+
+<p id="status" role="status">Loading the JavaScript SDK…</p>
+<pre id="error" role="alert" hidden></pre>
+<section id="results" hidden aria-labelledby="results-heading">
+  <h2 id="results-heading">Results</h2>
+  <p>Rows follow the input order. Expand an answer for details. Noul is the probability of yes.</p>
+  <div class="table-scroll" tabindex="0" role="region" aria-label="Arrow results">
+    <table>
+      <thead id="head"></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</section>
+
+<script type="module">
+  const $ = (id) => document.getElementById(id);
+  const element = (tag, text) => {
+    const node = document.createElement(tag);
+    node.textContent = text;
+    return node;
+  };
+  let TypeSafeClient;
+  let controller;
+
+  // Decode answers using only the returned Arrow fields and their metadata.
+  function readField(field) {
+    const kind = field.metadata.get("ARROW:extension:name")?.replace("jevaro.", "");
+    if (!["choice", "score", "noul"].includes(kind)) {
+      throw new Error(`Unsupported Arrow type for ${field.name}`);
+    }
+    return {
+      name: field.name, kind,
+      metadata: JSON.parse(field.metadata.get("ARROW:extension:metadata") ?? "{}"),
+    };
+  }
+
+  function readAnswer(field, value) {
+    if (field.kind === "noul") return { type: "noul", noul: value };
+    const probabilities = Array.from(value.probabilities);
+    if (field.kind === "choice") {
+      const { labels } = field.metadata;
+      return {
+        type: "choice", choice: labels[value.choice], confidence: value.confidence,
+        probabilities: Object.fromEntries(labels.map((label, i) => [label, probabilities[i]])),
+      };
+    }
+    return {
+      type: "score", score: value.score, confidence: value.confidence,
+      legend: Object.fromEntries(field.metadata.legend.map((label, i) => [i, label])),
+      probabilities: Object.fromEntries(probabilities.map((p, i) => [i, p])),
+    };
+  }
+
+  function addRow(fields, row, number) {
+    const tr = document.createElement("tr");
+    const index = element("th", number);
+    index.scope = "row";
+    tr.append(index);
+    for (const field of fields) {
+      const answer = readAnswer(field, row[field.name]);
+      const td = document.createElement("td");
+      if (field.kind === "noul") {
+        td.textContent = answer.noul;
+      } else {
+        const details = document.createElement("details");
+        details.append(
+          element("summary", answer[field.kind]),
+          element("pre", JSON.stringify(answer, null, 2)),
+        );
+        td.append(details);
+      }
+      tr.append(td);
+    }
+    $("rows").append(tr);
+  }
+
+  function parseJSON(id) {
+    try { return JSON.parse($(id).value); }
+    catch (error) { throw new Error(`Invalid ${id} JSON: ${error.message}`); }
+  }
+
+  $("cancel").addEventListener("click", () => controller?.abort());
+  $("request").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    let reader;
+    let received = 0;
+    let expected = 0;
+    controller = new AbortController();
+    $("inputs").disabled = $("submit").disabled = true;
+    $("cancel").disabled = false;
+    $("error").hidden = $("results").hidden = true;
+    $("head").replaceChildren();
+    $("rows").replaceChildren();
+
+    try {
+      const states = parseJSON("states");
+      const questions = parseJSON("questions");
+      if (!Array.isArray(states) || !states.length) throw new Error("States must be a nonempty JSON array.");
+      if (!questions || Array.isArray(questions) || typeof questions !== "object" || !Object.keys(questions).length) {
+        throw new Error("Questions must be a nonempty JSON object.");
+      }
+      expected = states.length;
+      $("status").textContent = `Waiting for the Arrow schema (${expected} states)…`;
+      const client = new TypeSafeClient({ baseURL: $("server").value.trim() });
+      reader = await client.systemOne({ states, questions }, { signal: controller.signal });
+
+      // Save the schema before iteration: Arrow clears it when the reader closes.
+      const fields = reader.schema.fields.map(readField);
+      const header = document.createElement("tr");
+      const index = element("th", "State");
+      index.scope = "col";
+      header.append(index);
+      for (const field of fields) {
+        const th = element("th", field.name);
+        th.scope = "col";
+        th.append(element("small", field.kind));
+        header.append(th);
+      }
+      $("head").append(header);
+      $("results").hidden = false;
+      $("status").textContent = `Schema received. Waiting for ${expected} rows…`;
+      for await (const batch of reader) {
+        // The first batch has no rows; later batches arrive as Jev answers.
+        for (const row of batch) addRow(fields, row, ++received);
+        $("status").textContent = `Receiving: ${received} of ${expected} rows.`;
+      }
+      if (controller.signal.aborted) throw controller.signal.reason;
+      $("status").textContent = `Done. ${received} of ${expected} rows received.`;
+    } catch (error) {
+      const cancelled = controller.signal.aborted;
+      $("status").textContent = `${cancelled ? "Cancelled" : "Failed"}.${expected ? ` ${received} of ${expected} rows received.` : ""}`;
+      if (!cancelled) {
+        let message = error.message;
+        if (error.body !== undefined) message += `\n${JSON.stringify(error.body, null, 2)}`;
+        if (/fetch|load failed|networkerror/i.test(error.message)) {
+          message += "\nCheck the server URL and the CORS setup in the README. Serve this page on port 3000.";
+        }
+        $("error").textContent = message;
+        $("error").hidden = false;
+      }
+    } finally {
+      await reader?.cancel();
+      controller = null;
+      $("inputs").disabled = $("submit").disabled = false;
+      $("cancel").disabled = true;
+    }
+  });
+
+  try {
+    ({ TypeSafeClient } = await import("https://esm.sh/jevaro@0.1.0?standalone&target=es2022"));
+    $("submit").disabled = false;
+    $("status").textContent = "Ready.";
+  } catch (error) {
+    $("status").textContent = "Could not load the JavaScript SDK from esm.sh.";
+    $("error").textContent = error.message;
+    $("error").hidden = false;
+  }
+</script>
+</html>

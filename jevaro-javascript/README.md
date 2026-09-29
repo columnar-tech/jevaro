@@ -5,7 +5,8 @@ through a [Jevaro server](https://github.com/columnar-tech/jevaro/blob/main/jeva
 Read the answers as an Arrow stream, in input order.
 
 Works in modern browsers and Node.js 20.3+. Requires a running Jevaro server.
-ESM imports, CommonJS, and TypeScript are supported; browser apps use a bundler.
+ESM imports, CommonJS, and TypeScript are supported; browsers can use a bundler
+or an ESM CDN.
 Start with the [quickstart](https://github.com/columnar-tech/jevaro/blob/main/docs/quickstart.md).
 
 ## Install
@@ -46,6 +47,11 @@ Call `reader.cancel()` if you open a reader without iterating it. There is no
 client-level `close()` method.
 
 ## Browser use
+
+Try the [standalone HTML example](https://github.com/columnar-tech/jevaro/tree/main/jevaro-javascript/browser)
+with `npx serve`: edit JSON states and questions, then view the streamed results
+in a table. It loads the SDK from a CDN and includes instructions for starting
+a local server with CORS.
 
 Bundle the import above with your app, then set the server address explicitly:
 
