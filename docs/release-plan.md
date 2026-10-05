@@ -197,6 +197,32 @@ with 464 for JSON input.
 The source tag and tested archives are in the
 [v0.3.0 GitHub release](https://github.com/columnar-tech/jevaro/releases/tag/v0.3.0).
 
+## 0.3.1
+
+All three packages were published on 2026-10-05:
+[Python SDK](https://pypi.org/project/jevaro/0.3.1/),
+[server](https://pypi.org/project/jevaro-server/0.3.1/), and
+[JavaScript SDK](https://www.npmjs.com/package/jevaro/v/0.3.1).
+This release fixes Arrow tables from apache-arrow's ES module build in the
+JavaScript SDK, returns 422 instead of 500 for malformed Arrow IPC metadata,
+and adds `state_column` examples to the documentation.
+
+The [PyPI workflow](https://github.com/columnar-tech/jevaro/actions/runs/37328233793)
+and the [npm workflow](https://github.com/columnar-tech/jevaro/actions/runs/37328253859)
+both published from `7345e5d8f2bd39cefb2d667c5e992bdacc5e86e0`. npm served the new version about three minutes
+after accepting the upload.
+
+All four compatibility jobs passed in each workflow. Fresh installs from both
+registries passed the SDK, TypeScript, HTTP, and saved-file checks on Python
+3.11 and 3.14. Published READMEs match the source; all Python SHA-256 hashes
+and the npm archive's SHA-512 and SHA-1 hashes match the tested files. The
+browser example passed its Chrome check with `jevaro@0.3.1` from esm.sh. API
+responses were simulated for these checks. The paid live smoke test passed on
+the release source before publishing.
+
+The source tag and tested archives are in the
+[v0.3.1 GitHub release](https://github.com/columnar-tech/jevaro/releases/tag/v0.3.1).
+
 ## References checked for this plan
 
 - [PyPA: packaging projects and distribution metadata](https://packaging.python.org/en/latest/tutorials/packaging-projects/)
