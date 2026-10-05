@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jevaro"
-version = "0.2.0"
+version = "0.3.0"
 description = "Send batches of states to Jev and read the answers as Arrow"
 readme = "README.md"
 authors = [{name = "Columnar Technologies Inc."}]

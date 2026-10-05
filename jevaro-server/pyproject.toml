@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jevaro-server"
-version = "0.2.0"
+version = "0.3.0"
 description = "Evaluate batches of states with Jev and stream Arrow results"
 readme = "README.md"
 authors = [{name = "Columnar Technologies Inc."}]

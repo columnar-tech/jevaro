@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-10-05
+
+All three packages are released at `0.3.0`.
 
 - The server accepts states as Arrow: a `multipart/form-data` request with a
   JSON `request` part and an Arrow IPC `states` part. Each row becomes an
