@@ -1,0 +1,257 @@
+{
+  "reference": "results/tickets_single.jsonl",
+  "reference_run": {
+    "strategy": "single",
+    "pointer": null,
+    "content_key": null,
+    "batch": 1,
+    "order": "input",
+    "concurrency": 100,
+    "rows": 10000,
+    "calls": 10000,
+    "wall_seconds": 18.98,
+    "rows_per_second": 526.9,
+    "input_tokens_per_row": 1053.0,
+    "input_tokens_per_second": 554782,
+    "cost_usd": 0.4423,
+    "latency_ms": {
+      "p50": 169.7,
+      "p90": 226.5,
+      "p99": 332.1,
+      "max": 929.8,
+      "mean": 181.7
+    },
+    "outcomes": {
+      "200": 10000,
+      "RemoteProtocolError": 94
+    },
+    "splits": 0
+  },
+  "reference_totals": {
+    "department": {
+      "billing": 0.1758,
+      "other": 0.212,
+      "returns": 0.3781,
+      "shipping": 0.2341
+    },
+    "urgency": 0.6566,
+    "refund": 0.2089,
+    "item_matches": 0.6944,
+    "tone": {
+      "angry": 0.0,
+      "calm": 0.864,
+      "frustrated": 0.136
+    },
+    "policy_covers": 0.0686
+  },
+  "candidates": {
+    "results/tickets_lift_b32.jsonl": {
+      "rows": 10000,
+      "questions": {
+        "department": {
+          "type": "choice",
+          "agreement": 0.985,
+          "mean_distance": 0.0104,
+          "max_distance": 0.37,
+          "large_differences": 10,
+          "by_position": {
+            "0-7": {
+              "agreement": 0.985,
+              "mean_distance": 0.0107,
+              "rows": 5000
+            },
+            "8-15": {
+              "agreement": 0.985,
+              "mean_distance": 0.01,
+              "rows": 5000
+            }
+          },
+          "by_confidence": {
+            "below 0.80": {
+              "agreement": 0.8428,
+              "mean_distance": 0.0701,
+              "rows": 954
+            },
+            "0.80-0.95": {
+              "agreement": 1.0,
+              "mean_distance": 0.0323,
+              "rows": 609
+            },
+            "0.95 or higher": {
+              "agreement": 1.0,
+              "mean_distance": 0.002,
+              "rows": 8437
+            }
+          }
+        },
+        "urgency": {
+          "type": "score",
+          "agreement": 0.995,
+          "mean_distance": 0.0095,
+          "max_distance": 0.43,
+          "large_differences": 16,
+          "mean_level_tvd": 0.0063,
+          "by_position": {
+            "0-7": {
+              "agreement": 0.996,
+              "mean_distance": 0.0093,
+              "rows": 5000
+            },
+            "8-15": {
+              "agreement": 0.994,
+              "mean_distance": 0.0097,
+              "rows": 5000
+            }
+          }
+        },
+        "refund": {
+          "type": "noul",
+          "agreement": 0.9969,
+          "mean_distance": 0.0063,
+          "max_distance": 0.17,
+          "large_differences": 0,
+          "by_position": {
+            "0-7": {
+              "agreement": 0.9974,
+              "mean_distance": 0.0063,
+              "rows": 5000
+            },
+            "8-15": {
+              "agreement": 0.9964,
+              "mean_distance": 0.0063,
+              "rows": 5000
+            }
+          }
+        },
+        "item_matches": {
+          "type": "noul",
+          "agreement": 0.9998,
+          "mean_distance": 0.0054,
+          "max_distance": 0.4,
+          "large_differences": 6,
+          "by_position": {
+            "0-7": {
+              "agreement": 0.9998,
+              "mean_distance": 0.0054,
+              "rows": 5000
+            },
+            "8-15": {
+              "agreement": 0.9998,
+              "mean_distance": 0.0054,
+              "rows": 5000
+            }
+          }
+        },
+        "tone": {
+          "type": "choice",
+          "agreement": 0.9855,
+          "mean_distance": 0.0147,
+          "max_distance": 0.23,
+          "large_differences": 0,
+          "by_position": {
+            "0-7": {
+              "agreement": 0.9846,
+              "mean_distance": 0.0147,
+              "rows": 5000
+            },
+            "8-15": {
+              "agreement": 0.9864,
+              "mean_distance": 0.0146,
+              "rows": 5000
+            }
+          },
+          "by_confidence": {
+            "below 0.80": {
+              "agreement": 0.9282,
+              "mean_distance": 0.0408,
+              "rows": 2020
+            },
+            "0.80-0.95": {
+              "agreement": 1.0,
+              "mean_distance": 0.0246,
+              "rows": 1790
+            },
+            "0.95 or higher": {
+              "agreement": 1.0,
+              "mean_distance": 0.0033,
+              "rows": 6190
+            }
+          }
+        },
+        "policy_covers": {
+          "type": "noul",
+          "agreement": 0.969,
+          "mean_distance": 0.0277,
+          "max_distance": 0.39,
+          "large_differences": 38,
+          "by_position": {
+            "0-7": {
+              "agreement": 0.9684,
+              "mean_distance": 0.0279,
+              "rows": 5000
+            },
+            "8-15": {
+              "agreement": 0.9696,
+              "mean_distance": 0.0275,
+              "rows": 5000
+            }
+          }
+        }
+      },
+      "run": {
+        "strategy": "lift",
+        "pointer": null,
+        "content_key": "state",
+        "batch": 32,
+        "order": "input",
+        "concurrency": 16,
+        "rows": 10000,
+        "calls": 625,
+        "wall_seconds": 15.48,
+        "rows_per_second": 645.8,
+        "input_tokens_per_row": 1892.2,
+        "input_tokens_per_second": 1222085,
+        "cost_usd": 0.7947,
+        "latency_ms": {
+          "p50": 350.4,
+          "p90": 495.1,
+          "p99": 615.8,
+          "max": 670.2,
+          "mean": 374.4
+        },
+        "outcomes": {
+          "200": 625,
+          "429": 6
+        },
+        "splits": 0
+      },
+      "totals": {
+        "department": {
+          "billing": 0.1781,
+          "other": 0.2169,
+          "returns": 0.3726,
+          "shipping": 0.2324
+        },
+        "urgency": 0.6551,
+        "refund": 0.2104,
+        "item_matches": 0.6946,
+        "tone": {
+          "angry": 0.0,
+          "calm": 0.8689,
+          "frustrated": 0.1311
+        },
+        "policy_covers": 0.0682
+      },
+      "authoring_match": {
+        "reference": {
+          "department": 0.9393,
+          "urgency": 0.979
+        },
+        "candidate": {
+          "department": 0.9379,
+          "urgency": 0.9796
+        }
+      }
+    }
+  }
+}

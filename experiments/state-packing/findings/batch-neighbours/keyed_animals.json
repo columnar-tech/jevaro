@@ -1,0 +1,225 @@
+{
+  "reference": "results/pilot_messages_keyed_animals.jsonl",
+  "reference_run": {
+    "strategy": "keyed",
+    "pointer": "about",
+    "content_key": null,
+    "batch": 32,
+    "order": "input",
+    "concurrency": 10,
+    "rows": 320,
+    "calls": 10,
+    "wall_seconds": 0.43,
+    "rows_per_second": 736.3,
+    "input_tokens_per_row": 284.5,
+    "input_tokens_per_second": 209472,
+    "cost_usd": 0.0038,
+    "latency_ms": {
+      "p50": 323.8,
+      "p90": 375.0,
+      "p99": 375.0,
+      "max": 375.0,
+      "mean": 336.0
+    },
+    "outcomes": {
+      "200": 10
+    },
+    "splits": 0
+  },
+  "reference_totals": {
+    "department": {
+      "billing": 0.1906,
+      "other": 0.2344,
+      "returns": 0.325,
+      "shipping": 0.25
+    },
+    "urgency": 0.6897,
+    "refund": 0.275
+  },
+  "candidates": {
+    "results/messages_keyed_animals_b32_against_type.jsonl": {
+      "rows": 320,
+      "questions": {
+        "department": {
+          "type": "choice",
+          "agreement": 0.9469,
+          "mean_distance": 0.0579,
+          "max_distance": 0.58,
+          "large_differences": 21,
+          "by_position": {
+            "0-7": {
+              "agreement": 0.9718,
+              "mean_distance": 0.0428,
+              "rows": 71
+            },
+            "8-15": {
+              "agreement": 0.9765,
+              "mean_distance": 0.0661,
+              "rows": 85
+            },
+            "16-23": {
+              "agreement": 0.9259,
+              "mean_distance": 0.0511,
+              "rows": 81
+            },
+            "24-31": {
+              "agreement": 0.9157,
+              "mean_distance": 0.0692,
+              "rows": 83
+            }
+          },
+          "by_confidence": {
+            "below 0.80": {
+              "agreement": 0.6596,
+              "mean_distance": 0.2095,
+              "rows": 47
+            },
+            "0.80-0.95": {
+              "agreement": 0.9787,
+              "mean_distance": 0.1202,
+              "rows": 47
+            },
+            "0.95 or higher": {
+              "agreement": 1.0,
+              "mean_distance": 0.0135,
+              "rows": 226
+            }
+          },
+          "by_contrast": {
+            "contrast": {
+              "agreement": 0.9821,
+              "mean_distance": 0.0505,
+              "rows": 56,
+              "mean_shift_toward_majority": 0.0068
+            },
+            "majority": {
+              "agreement": 0.9394,
+              "mean_distance": 0.0595,
+              "rows": 264,
+              "mean_shift_toward_majority": -0.0034
+            }
+          }
+        },
+        "urgency": {
+          "type": "score",
+          "agreement": 0.9875,
+          "mean_distance": 0.036,
+          "max_distance": 0.83,
+          "large_differences": 11,
+          "mean_level_tvd": 0.0281,
+          "by_position": {
+            "0-7": {
+              "agreement": 0.9859,
+              "mean_distance": 0.0261,
+              "rows": 71
+            },
+            "8-15": {
+              "agreement": 1.0,
+              "mean_distance": 0.0256,
+              "rows": 85
+            },
+            "16-23": {
+              "agreement": 0.9753,
+              "mean_distance": 0.0577,
+              "rows": 81
+            },
+            "24-31": {
+              "agreement": 0.988,
+              "mean_distance": 0.0339,
+              "rows": 83
+            }
+          },
+          "by_contrast": {
+            "contrast": {
+              "agreement": 1.0,
+              "mean_distance": 0.023,
+              "rows": 56
+            },
+            "majority": {
+              "agreement": 0.9848,
+              "mean_distance": 0.0387,
+              "rows": 264
+            }
+          }
+        },
+        "refund": {
+          "type": "noul",
+          "agreement": 0.9656,
+          "mean_distance": 0.0475,
+          "max_distance": 0.63,
+          "large_differences": 16,
+          "by_position": {
+            "0-7": {
+              "agreement": 0.9859,
+              "mean_distance": 0.048,
+              "rows": 71
+            },
+            "8-15": {
+              "agreement": 0.9647,
+              "mean_distance": 0.0524,
+              "rows": 85
+            },
+            "16-23": {
+              "agreement": 0.9506,
+              "mean_distance": 0.0525,
+              "rows": 81
+            },
+            "24-31": {
+              "agreement": 0.9639,
+              "mean_distance": 0.0373,
+              "rows": 83
+            }
+          },
+          "by_contrast": {
+            "contrast": {
+              "agreement": 0.9643,
+              "mean_distance": 0.0441,
+              "rows": 56
+            },
+            "majority": {
+              "agreement": 0.9659,
+              "mean_distance": 0.0483,
+              "rows": 264
+            }
+          }
+        }
+      },
+      "run": {
+        "strategy": "keyed",
+        "pointer": "about",
+        "content_key": null,
+        "batch": 32,
+        "order": "against-type",
+        "concurrency": 16,
+        "rows": 10000,
+        "calls": 313,
+        "wall_seconds": 5.0,
+        "rows_per_second": 2000.3,
+        "input_tokens_per_row": 284.4,
+        "input_tokens_per_second": 568849,
+        "cost_usd": 0.1194,
+        "latency_ms": {
+          "p50": 235.9,
+          "p90": 306.5,
+          "p99": 397.3,
+          "max": 608.8,
+          "mean": 247.9
+        },
+        "outcomes": {
+          "200": 313
+        },
+        "splits": 0
+      },
+      "totals": {
+        "department": {
+          "billing": 0.1969,
+          "other": 0.2313,
+          "returns": 0.325,
+          "shipping": 0.2469
+        },
+        "urgency": 0.6937,
+        "refund": 0.2781
+      }
+    }
+  }
+}
