@@ -49,6 +49,9 @@ class TypeSafeClient {
     if (!request.questions || !Object.keys(request.questions).length) {
       throw new TypeError("questions must be a nonempty object");
     }
+    if (request.rowsPerCall !== undefined && (!Number.isInteger(request.rowsPerCall) || request.rowsPerCall < 1)) {
+      throw new TypeError("rowsPerCall must be a positive integer");
+    }
     const expectedRows = arrow ? request.states.numRows : plural ? request.states.length : 1;
     const timeout = options.timeout ?? this.timeout;
     if (!Number.isFinite(timeout) || timeout <= 0) throw new TypeError("timeout must be positive milliseconds");
@@ -70,14 +73,18 @@ class TypeSafeClient {
         // Arrow states travel in a multipart form beside the JSON request fields.
         // fetch sets the multipart Content-Type, including its boundary.
         headers.delete("Content-Type");
-        const { states, stateColumn, ...fields } = request;
+        const { states, stateColumn, rowsPerCall, ...fields } = request;
         const json = { ...fields, model: fields.model ?? this.defaultModel };
         if (stateColumn !== undefined) json.state_column = stateColumn;
+        if (rowsPerCall !== undefined) json.rows_per_call = rowsPerCall;
         payload = new FormData();
         payload.append("request", new Blob([JSON.stringify(json)], { type: "application/json" }));
         payload.append("states", new Blob([await writeStates(states)], { type: MEDIA_TYPE }), "states.arrows");
       } else {
-        payload = JSON.stringify({ ...request, model: request.model ?? this.defaultModel });
+        const { rowsPerCall, ...fields } = request;
+        const json = { ...fields, model: fields.model ?? this.defaultModel };
+        if (rowsPerCall !== undefined) json.rows_per_call = rowsPerCall;
+        payload = JSON.stringify(json);
       }
       response = await this.fetch(`${this.baseURL}/v1/systemone`, { method: "POST", headers, signal, body: payload });
       if (!response.ok) {

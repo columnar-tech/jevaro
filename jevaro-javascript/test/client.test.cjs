@@ -132,11 +132,26 @@ test("an Arrow Table sets the expected row count", async () => {
   await assert.rejects(reader.readAll(), /expected 2 rows, got 1/);
 });
 
+test("rowsPerCall is sent as rows_per_call in JSON and in a multipart request part", async () => {
+  const bodies = [];
+  const client = new TypeSafeClient({ fetch: async (url, options) => { bodies.push(options.body); return response([0.25, 0.75]); } });
+  await (await client.systemOne({ states: ["one", "two"], questions: { n: noul() }, rowsPerCall: 32 })).readAll();
+  assert.deepEqual(JSON.parse(bodies[0]), JSON.parse(JSON.stringify({
+    states: ["one", "two"], questions: { n: noul() }, model: "jev-latest", rows_per_call: 32,
+  })));
+  const table = tableFromArrays({ text: ["one", "two"] });
+  await (await client.systemOne({ states: table, stateColumn: "text", questions: { n: noul() }, rowsPerCall: 8 })).readAll();
+  assert.deepEqual(JSON.parse(await bodies[1].get("request").text()), JSON.parse(JSON.stringify({
+    questions: { n: noul() }, model: "jev-latest", state_column: "text", rows_per_call: 8,
+  })));
+});
+
 test("request validation", async () => {
   const client = new TypeSafeClient({ fetch: () => assert.fail("must not fetch") });
   for (const input of [{}, { states: [] }, { state: "a", states: ["b"] }, { states: "bad" },
     { states: { text: ["a"] } }, { states: ["a"], stateColumn: "text" }, { state: "a", stateColumn: "text" },
-    { states: tableFromArrays({ text: [] }) }]) {
+    { states: tableFromArrays({ text: [] }) }, { states: ["a"], rowsPerCall: 0 },
+    { states: ["a"], rowsPerCall: 1.5 }, { states: ["a"], rowsPerCall: "2" }]) {
     await assert.rejects(client.systemOne({ ...input, questions: { n: noul() } }), TypeError);
   }
 });

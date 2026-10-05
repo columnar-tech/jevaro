@@ -52,6 +52,18 @@ run("a Table from apache-arrow's ES module build reaches the server intact", asy
   assert.equal((await reader.readAll()).reduce((count, batch) => count + batch.numRows, 0), 2);
 });
 
+run("rowsPerCall packs states and keeps input order", async () => {
+  const rows = [];
+  const states = [{ id: 41, delay: 0.05 }, { id: 42 }, { id: 43 }, { id: 44 }, { id: 45 }];
+  for await (const batch of await client.systemOne({ states, questions, rowsPerCall: 2 })) {
+    for (const row of batch) rows.push(row);
+  }
+  assert.deepEqual(rows.map(r => r.refund), [0.041, 0.042, 0.043, 0.044, 0.045]);
+  const table = tableFromArrays({ id: Int32Array.from([46, 47]), text: ["a", "b"] });
+  const fromTable = await (await client.systemOne({ states: table, questions, rowsPerCall: 2 })).readAll();
+  assert.equal(fromTable.reduce((count, batch) => count + batch.numRows, 0), 2);
+});
+
 run("upstream failure propagates as a broken HTTP stream", async () => {
   const reader = await client.systemOne({ states: [{ id: 5 }, { id: 6, statuses: [401] }], questions });
   await assert.rejects(reader.readAll());

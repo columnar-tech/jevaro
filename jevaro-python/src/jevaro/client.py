@@ -154,10 +154,14 @@ class TypeSafeClient:
         questions: Mapping[str, Question] | None = None, *,
         states: list[JSONContent] | ArrowStreamExportable = _MISSING,
         state_column: str | None = None, model: str | None = None,
+        rows_per_call: int | None = None,
         timeout: float | None = None, extra_headers: Mapping[str, str] | None = None,
     ) -> ArrowReader:
         if (state is _MISSING) == (states is _MISSING):
             raise ValueError("Supply exactly one of state or states")
+        if rows_per_call is not None and (
+                isinstance(rows_per_call, bool) or not isinstance(rows_per_call, int) or rows_per_call < 1):
+            raise ValueError("rows_per_call must be a positive integer")
         arrow = hasattr(states, "__arrow_c_stream__")
         if states is not _MISSING and not arrow and (not isinstance(states, list) or not states):
             raise ValueError("states must be a nonempty list or tabular Arrow data")
@@ -172,6 +176,8 @@ class TypeSafeClient:
                 for name, q in questions.items()
             },
         }
+        if rows_per_call is not None:
+            body["rows_per_call"] = rows_per_call
         headers = {"Accept": MEDIA_TYPE}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -271,12 +277,13 @@ class AsyncTypeSafeClient:
         questions: Mapping[str, Question] | None = None, *,
         states: list[JSONContent] | ArrowStreamExportable = _MISSING,
         state_column: str | None = None, model: str | None = None,
+        rows_per_call: int | None = None,
         timeout: float | None = None, extra_headers: Mapping[str, str] | None = None,
     ) -> AsyncArrowReader:
         self._transport.bind_loop()
         opening = asyncio.create_task(asyncio.to_thread(
             self._client.system_one, state, questions, states=states, state_column=state_column,
-            model=model, timeout=timeout, extra_headers=extra_headers,
+            model=model, rows_per_call=rows_per_call, timeout=timeout, extra_headers=extra_headers,
         ))
         try:
             return AsyncArrowReader(await asyncio.shield(opening))

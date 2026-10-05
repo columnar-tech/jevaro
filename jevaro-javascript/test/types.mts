@@ -15,3 +15,7 @@ await client.systemOne({ states: table, questions });
 await client.systemOne({ states: table, stateColumn: "text", questions });
 // @ts-expect-error stateColumn requires an Arrow Table
 await client.systemOne({ states: ["one"], stateColumn: "text", questions });
+await client.systemOne({ states: ["one", "two"], questions, rowsPerCall: 32 });
+await client.systemOne({ states: table, stateColumn: "text", questions, rowsPerCall: 32 });
+// @ts-expect-error rowsPerCall is a number
+await client.systemOne({ states: ["one"], questions, rowsPerCall: "32" });

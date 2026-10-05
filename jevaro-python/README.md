@@ -53,7 +53,7 @@ if you stop early; full iteration closes it automatically.
 Question dictionaries work too. See the bundled
 [three-type example](https://github.com/columnar-tech/jevaro/blob/main/jevaro-python/example.py).
 
-`system_one(state, questions, *, states=..., model=..., timeout=..., extra_headers=...)`
+`system_one(state, questions, *, states=..., state_column=..., model=..., rows_per_call=..., timeout=..., extra_headers=...)`
 returns an `ArrowReader`. Supply exactly one of `state` and `states`.
 
 | Argument | Meaning |
@@ -63,6 +63,7 @@ returns an `ArrowReader`. Supply exactly one of `state` and `states`.
 | `state_column` | With Arrow states, the column whose values are the states |
 | `questions` | A nonempty mapping of question IDs to definitions |
 | `model` | Override the client's model |
+| `rows_per_call` | States per upstream call, 1 to 256; above 1, [packs states](#pack-states-into-fewer-calls) |
 | `timeout` | Override the client's I/O timeout, in seconds |
 | `extra_headers` | Add or override headers for this request |
 
@@ -153,6 +154,30 @@ types without the warning.
 A state column can also hold lists, maps, or `arrow.json` values. See the
 [HTTP API](https://github.com/columnar-tech/jevaro/blob/main/docs/http-api.md#arrow-request)
 for how Arrow types become JSON.
+
+## Pack states into fewer calls
+
+`rows_per_call` puts up to that many states in each upstream call:
+
+```python
+with client.system_one(states=messages, questions=questions, rows_per_call=64) as reader:
+    answers = reader.read_all()
+```
+
+The answers have the same schema and row order as without it.
+
+In a live test of short messages with three questions, this raised throughput
+from 1,040 to 2,000 states per second and used 28% fewer input tokens.
+
+There are two tradeoffs:
+
+- **Answers shift slightly, and consistently.** About 1.5% of Choice answers
+  differed from one state per call.
+- **Long states with many questions cost more.** Each question carries its
+  own copy of the state.
+
+See the [HTTP API](https://github.com/columnar-tech/jevaro/blob/main/docs/http-api.md#pack-states-into-fewer-calls)
+for how it works and which questions it rejects.
 
 ## Client configuration
 

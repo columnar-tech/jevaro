@@ -6,8 +6,9 @@ A Python batching proxy for [Jev](https://docs.typesafe.ai/) that returns
 Jevaro is an experiment in bulk inference: ask the same questions about many
 independent states in one client request. The
 [TypeSafe API](https://docs.typesafe.ai/api) evaluates one state per request.
-Jevaro makes those calls concurrently and converts the JSON answers into an
-Arrow IPC stream, in input order.
+Jevaro makes those calls concurrently, or packs many states into each call
+with [`rows_per_call`](docs/http-api.md#pack-states-into-fewer-calls). It
+converts the JSON answers into an Arrow IPC stream, in input order.
 
 The schema arrives before the answers. Each state becomes a row and each
 question a column. Arrow extension types preserve the meaning of Choice,

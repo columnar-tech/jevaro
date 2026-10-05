@@ -8,6 +8,8 @@ export type State = NonNullable<OriginalRequest["state"]>;
 export type SystemOneRequest<Q extends Questions = Questions> = {
   questions: Q;
   model?: string;
+  /** States per upstream call, 1 to 256; above 1, each state moves into its questions' instructions. */
+  rowsPerCall?: number;
 } & (
   | { state: State; states?: never; stateColumn?: never }
   | { states: State[]; state?: never; stateColumn?: never }

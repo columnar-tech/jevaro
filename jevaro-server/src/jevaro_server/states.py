@@ -184,16 +184,20 @@ class States:
                 raise StatesError(f"Row {row}: a JSON state must be a string, object, or array")
         return value
 
-    def validate(self):
-        """Convert every row once and discard it, so bad input fails before streaming starts."""
+    def validate(self, check=None):
+        """Convert every row once and discard it, so bad input fails before streaming starts.
+
+        check, if given, is called with each state and its row number.
+        """
         if has_float(self.column.type):
             for chunk in self.column.chunks:
                 check_finite(chunk, self.path)
-        for _ in self:
-            pass
+        for row, state in enumerate(self):
+            if check:
+                check(state, row)
 
 
-def read_states(data, state_column=None):
+def read_states(data, state_column=None, check=None):
     """Read a whole Arrow IPC stream and check that every row can become a state."""
     if bytes(data[:6]) == b"ARROW1":
         raise StatesError("states uses the Arrow IPC file format; send the IPC stream format")
@@ -202,5 +206,5 @@ def read_states(data, state_column=None):
     except (pa.ArrowException, OSError) as error:  # Malformed metadata raises a plain OSError.
         raise StatesError(f"states is not a valid Arrow IPC stream: {error}") from error
     states = States(table, state_column)
-    states.validate()
+    states.validate(check)
     return states

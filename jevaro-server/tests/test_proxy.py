@@ -66,6 +66,7 @@ class ProxyTests(unittest.TestCase):
         self.base_url = f"http://127.0.0.1:{self.socket.getsockname()[1]}"
         with patch.dict(os.environ):
             os.environ.pop("JEVARO_MAX_RETRIES", None)  # Test the default retry count.
+            os.environ.pop("JEVARO_UPSTREAM_CONNECTIONS", None)  # And the default connections.
             app = create_app(client_factory=self.upstream.client, transport=self.upstream.transport,
                              concurrency=3)
         self.server = uvicorn.Server(uvicorn.Config(app, log_level="critical", access_log=False))
@@ -162,16 +163,25 @@ class ProxyTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 401)
             self.assertEqual(self.upstream.started, [])
 
-    def test_requests_share_one_upstream_pool_until_shutdown(self):
+    def test_requests_share_the_upstream_pools_until_shutdown(self):
         for state in ("one", "two"):
             with self.client.system_one(state=state, questions=QUESTIONS) as reader:
                 self.assertEqual(reader.read_all().num_rows, 1)
-        first, second = self.upstream.http_clients
-        self.assertIs(first, second)
-        self.assertFalse(first.is_closed)
+        first, second = self.upstream.http_clients[:4], self.upstream.http_clients[4:]
+        self.assertEqual(len(set(map(id, first))), 4)
+        self.assertEqual(list(map(id, first)), list(map(id, second)))
+        self.assertFalse(any(client.is_closed for client in first))
         self.server.should_exit = True
         self.thread.join(timeout=5)
-        self.assertTrue(first.is_closed)
+        self.assertTrue(all(client.is_closed for client in first))
+
+    def test_connections_validation(self):
+        create_app(connections=1)
+        for value in (0, -1, True, 1.5):
+            with self.assertRaises(ValueError):
+                create_app(connections=value)
+        with patch.dict(os.environ, {"JEVARO_UPSTREAM_CONNECTIONS": "0"}), self.assertRaises(ValueError):
+            create_app()
 
     def test_question_ids_have_no_reserved_names(self):
         questions = {name: Noul(instructions="Refund?") for name in ("state", "model", "usage")}
@@ -216,6 +226,114 @@ class ProxyTests(unittest.TestCase):
                 next(reader)
         self.assertEqual(self.upstream.attempts[2], 1)
 
+    def test_rows_per_call_packs_states_into_fewer_calls(self):
+        states = [{"id": i, "delay": 0.08 if i == 0 else 0.001} for i in range(7)]
+        with self.client.system_one(states=states, questions=QUESTIONS) as reader:
+            native = reader.read_all()
+        self.upstream.payloads.clear()
+        with self.client.system_one(states=states, questions=QUESTIONS, rows_per_call=3) as reader:
+            packed = reader.read_all()
+        self.assertTrue(packed.equals(native, check_metadata=True))
+        payloads = sorted(self.upstream.payloads, key=lambda p: p["questions"]["0.0"]["instructions"]["state"]["id"])
+        self.assertEqual([len(p["questions"]) for p in payloads], [9, 9, 3])
+        self.assertEqual({p["state"] for p in payloads}, {""})
+        self.assertEqual(payloads[1]["questions"]["2.2"],
+                         {"type": "noul", "instructions": {"state": states[5], "question": "Refund?"}})
+        self.assertEqual(payloads[1]["questions"]["2.1"]["criteria"], RAW_QUESTIONS["urgency"]["criteria"])
+
+    def test_rows_per_call_with_arrow_states(self):
+        table = pa.table({"id": [3, 1, 2], "text": ["c", "a", "b"]})
+        response = self.post_form(form(table, {"questions": RAW_QUESTIONS, "rows_per_call": 2}))
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(pa.ipc.open_stream(response.content).read_all()["refund"].to_pylist(), [0.003, 0.001, 0.002])
+        self.assertEqual(sorted(len(p["questions"]) for p in self.upstream.payloads), [3, 6])
+        self.upstream.payloads.clear()
+        with self.client.system_one(states=table, state_column="text", questions=QUESTIONS, rows_per_call=8) as reader:
+            self.assertEqual(reader.read_all().num_rows, 3)
+        (payload,) = self.upstream.payloads
+        self.assertEqual([q["instructions"]["state"] for q in payload["questions"].values()][::3], ["c", "a", "b"])
+
+    def test_rows_per_call_rewrites_paths_and_reports_original_legends(self):
+        questions = {
+            "urgency": Score(instructions="How urgent is `ticket.body`?",
+                             criteria=["`ticket.body` can wait", {"summary": "`ticket.body` is urgent"}]),
+            "covered": Noul(instructions={"policy": "30 days.", "question": "Is `ticket.body` covered by `policy`?"}),
+        }
+        states = [{"id": i, "ticket": {"body": f"Message {i}"}} for i in range(3)]
+        with self.client.system_one(states=states, questions=questions, rows_per_call=3) as reader:
+            table = reader.read_all()
+        self.assertEqual(table["covered"].to_pylist(), [0.0, 0.001, 0.002])
+        self.assertEqual(json.loads(table.schema.field("urgency").metadata[b"ARROW:extension:metadata"])["legend"],
+                         ["`ticket.body` can wait", {"summary": "`ticket.body` is urgent"}])
+        (payload,) = self.upstream.payloads
+        urgency, covered = payload["questions"]["1.0"], payload["questions"]["1.1"]
+        self.assertEqual(urgency["instructions"], {"state": states[1], "question": "How urgent is `state.ticket.body`?"})
+        self.assertEqual(urgency["criteria"], ["`state.ticket.body` can wait", {"summary": "`state.ticket.body` is urgent"}])
+        self.assertEqual(covered["instructions"], {"state": states[1], "policy": "30 days.",
+                                                   "question": "Is `state.ticket.body` covered by `policy`?"})
+
+    def test_rows_per_call_conflicts_are_rejected_before_upstream(self):
+        state_field = {"q": {"type": "noul", "instructions": {"state": "CA", "question": "West coast?"}}}
+        ambiguous = {"q": {"type": "noul", "instructions": {"policy": "30 days.", "question": "Covered by `policy`?"}}}
+        cases = [
+            ({"states": ["a"], "questions": state_field}, "Question 'q' has a 'state' field in its instructions"),
+            ({"state": {"policy": "60 days."}, "questions": ambiguous}, "Row 0: question 'q' refers to `policy`"),
+            ({"states": [{"id": 1}, {"policy": "60 days."}], "questions": ambiguous}, "Row 1: question 'q' refers to `policy`"),
+        ]
+        with httpx2.Client(base_url=self.base_url, headers={"Authorization": "Bearer jevaro-test-key"}) as client:
+            for body, expected in cases:
+                with self.subTest(expected):
+                    response = client.post("/v1/systemone", json={**body, "rows_per_call": 2})
+                    self.assertEqual(response.status_code, 422, response.text)
+                    self.assertIn(expected, response.text)
+        for questions, table, expected in (
+            (state_field, pa.table({"text": ["a"]}), "has a 'state' field"),
+            (ambiguous, pa.table({"id": [1, 2], "policy": ["a", "b"]}), "Row 0: question 'q' refers to `policy`"),
+        ):
+            with self.subTest(expected):
+                response = self.post_form(form(table, {"questions": questions, "rows_per_call": 2}))
+                self.assertEqual(response.status_code, 422, response.text)
+                self.assertIn(expected, response.text)
+        self.assertEqual(self.upstream.started, [])
+        with self.client.system_one(states=[{"id": 1}, {"policy": "60 days."}], questions=ambiguous) as reader:
+            self.assertEqual(reader.read_all().num_rows, 2)
+
+    def test_rows_per_call_validation(self):
+        with httpx2.Client(base_url=self.base_url, headers={"Authorization": "Bearer jevaro-test-key"}) as client:
+            for value in (0, 257, "2", True, 1.5, None):
+                with self.subTest(value):
+                    response = client.post("/v1/systemone", json={"states": ["a"], "questions": RAW_QUESTIONS,
+                                                                  "rows_per_call": value})
+                    self.assertEqual(response.status_code, 422, response.text)
+                    self.assertIn("rows_per_call", response.text)
+        response = self.post_form(form(pa.table({"text": ["a"]}), {"questions": RAW_QUESTIONS, "rows_per_call": 0}))
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(self.upstream.started, [])
+        with self.client.system_one(states=["a", "b"], questions=QUESTIONS, rows_per_call=1) as reader:
+            self.assertEqual(reader.read_all().num_rows, 2)
+        self.assertEqual(sorted(p["state"] for p in self.upstream.payloads), ["a", "b"])
+
+    def test_rows_per_call_splits_calls_that_typesafe_rejects(self):
+        states = [{"id": i, "max_questions": 3} for i in range(4)]
+        with self.client.system_one(states=states, questions=QUESTIONS, rows_per_call=4) as reader:
+            self.assertEqual(reader.read_all()["refund"].to_pylist(), [0.0, 0.001, 0.002, 0.003])
+        self.assertEqual(sorted(len(p["questions"]) for p in self.upstream.payloads), [3, 3, 3, 3, 6, 6, 12])
+
+    def test_rows_per_call_cancellation_and_failure(self):
+        reader = self.client.system_one(states=[{"id": i, "gate": True} for i in range(100)], questions=QUESTIONS,
+                                        rows_per_call=10)
+        self.assertEqual(next(reader).num_rows, 0)
+        self.until(lambda: self.upstream.active == 3)
+        reader.close()
+        self.until(lambda: self.upstream.active == 0)
+        self.assertEqual(len(self.upstream.cancelled), 3)
+        states = [{"id": 0, "delay": 0.1}, {"id": 1}, {"id": 2, "statuses": [401]}, {"id": 3}]
+        with self.client.system_one(states=states, questions=QUESTIONS, rows_per_call=2) as reader:
+            self.assertEqual(next(reader).num_rows, 0)
+            self.assertEqual(next(reader)["refund"].to_pylist(), [0.0, 0.001])
+            with self.assertRaises((httpx2.HTTPError, OSError, pa.ArrowInvalid)):
+                next(reader)
+
     def test_async_client(self):
         async def run():
             async with AsyncTypeSafeClient(api_key="jevaro-test-key", base_url=self.base_url) as client:
@@ -223,6 +341,9 @@ class ProxyTests(unittest.TestCase):
                     self.assertEqual(reader.schema.names, list(QUESTIONS))
                     table = await reader.read_all()
                     self.assertEqual(table["refund"].to_pylist(), [0.007, 0.008])
+                async with await client.system_one(states=[{"id": 7}, {"id": 8}], questions=QUESTIONS,
+                                                   rows_per_call=2) as reader:
+                    self.assertEqual((await reader.read_all())["refund"].to_pylist(), [0.007, 0.008])
         asyncio.run(run())
 
     def test_async_cancellation_closes_http_and_upstream_work(self):

@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+- The server accepts `rows_per_call`, from 1 to 256, in JSON requests and in
+  the Arrow form's `request` part. Above 1, it packs up to that many states
+  into each upstream call, putting each state into its own copy of every
+  question's instructions.
+  - In a live test of short messages with three questions, throughput rose
+    from 1,040 to 2,000 states per second, using 28% fewer input tokens.
+  - Answers shift slightly from one state per call, and long states with many
+    questions use more tokens.
+  - Instructions that conflict with packing are rejected with 422. See the
+    [HTTP API](docs/http-api.md#pack-states-into-fewer-calls).
+- The Python SDK accepts `rows_per_call`, and the JavaScript SDK accepts
+  `rowsPerCall`.
+- The server spreads upstream calls over `JEVARO_UPSTREAM_CONNECTIONS` HTTP/2
+  connections. The default is 4; before, it used one. The default
+  `JEVARO_CONCURRENCY` is 512, up from 256. Together, these raised
+  one-state-per-call throughput in a live test from 500 to 1,040 states per
+  second.
+- The server lowers the number of upstream calls in flight for an API key
+  while TypeSafe returns 429 or 529, and raises it again as calls succeed.
+- The live smoke test also packs three states into one call.
+
 ## 0.3.1 — 2026-10-05
 
 All three packages are released at `0.3.1`.

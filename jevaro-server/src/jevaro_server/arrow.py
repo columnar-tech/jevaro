@@ -88,9 +88,11 @@ class ScoreType(AnswerType):
             required("confidence", pa.float64()),
             required("probabilities", probabilities(len(legend))),
         ]), legend=legend)
+        # Answers echo the levels as JSON; compare them with the levels as JSON once decoded.
+        self.legend = dict(enumerate(json.loads(self._metadata)["legend"]))
 
     def pack(self, answer):
-        legend = dict(enumerate(json.loads(self._metadata)["legend"]))
+        legend = self.legend
         if (not isinstance(answer, ScoreAnswer) or answer.legend != legend
                 or set(answer.probabilities) != set(legend)):
             raise ValueError("Score answer does not match the schema")

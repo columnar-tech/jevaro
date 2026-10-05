@@ -3,7 +3,7 @@
 import asyncio
 import os
 from collections import deque
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Annotated
 
 import httpx2
@@ -18,7 +18,9 @@ from typesafe_sdk.constants import DEFAULT_TIMEOUT
 
 from .arrow import StreamSink, answer_batch, schema_for
 from .form import FormError, media_type, read_parts
+from .packing import MAX_ROWS_PER_CALL, PackingError, packed_responses, state_checker, templates_for
 from .states import StatesError, read_states
+from .throttle import ThrottledTransport
 
 MEDIA_TYPE = "application/vnd.apache.arrow.stream"
 Question = Annotated[Choice | Score | Noul, Field(discriminator="type")]
@@ -27,7 +29,7 @@ REQUEST_PART_TYPES = {None, "application/json"}
 STATES_PART_TYPES = {None, "application/octet-stream", MEDIA_TYPE}
 FORM_OPENAPI = {"requestBody": {"content": {"multipart/form-data": {
     "schema": {"type": "object", "required": ["request", "states"], "properties": {
-        "request": {"type": "object", "description": "questions, model, and optional state_column"},
+        "request": {"type": "object", "description": "questions, model, and optional state_column and rows_per_call"},
         "states": {"type": "string", "format": "binary", "description": "Arrow IPC stream; one state per row"},
     }},
     "encoding": {"request": {"contentType": "application/json"}, "states": {"contentType": MEDIA_TYPE}},
@@ -42,6 +44,9 @@ def check_criteria(questions):
             raise ValueError("Score requires 2 to 10 levels")
 
 
+RowsPerCall = Annotated[int, Field(ge=1, le=MAX_ROWS_PER_CALL, strict=True)]
+
+
 class Evaluation(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
@@ -49,6 +54,7 @@ class Evaluation(BaseModel):
     states: list[JSONContent] | None = None
     questions: dict[str, Question] = Field(min_length=1)
     model: str = Field(default="jev-latest", min_length=1)
+    rows_per_call: RowsPerCall = 1
 
     @model_validator(mode="after")
     def validate_request(self):
@@ -72,6 +78,7 @@ class FormRequest(BaseModel):
     questions: dict[str, Question] = Field(min_length=1)
     model: str = Field(default="jev-latest", min_length=1)
     state_column: str | None = Field(default=None, min_length=1)
+    rows_per_call: RowsPerCall = 1
 
     @model_validator(mode="after")
     def validate_request(self):
@@ -132,27 +139,58 @@ async def ordered_responses(client, states, questions, model, concurrency):
         await asyncio.gather(*pending, return_exceptions=True)
 
 
-def create_app(*, client_factory=AsyncTypeSafeClient, transport=None, concurrency=None,
-               max_retries=None):
+class Spread:
+    """Send each call over the upstream connection with the fewest calls in flight."""
+
+    def __init__(self, clients, in_flight):
+        self.clients = clients
+        self.in_flight = in_flight
+
+    async def system_one(self, **kwargs):
+        index = min(range(len(self.clients)), key=self.in_flight.__getitem__)
+        self.in_flight[index] += 1
+        try:
+            return await self.clients[index].system_one(**kwargs)
+        finally:
+            self.in_flight[index] -= 1
+
+
+def create_app(*, client_factory=AsyncTypeSafeClient, transport=None, transport_factory=None,
+               concurrency=None, max_retries=None, connections=None):
     if concurrency is None:
-        concurrency = int(os.environ.get("JEVARO_CONCURRENCY", "256"))
+        concurrency = int(os.environ.get("JEVARO_CONCURRENCY", "512"))
     if isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency < 1:
         raise ValueError("JEVARO_CONCURRENCY must be a positive integer")
     if max_retries is None:
         max_retries = int(os.environ.get("JEVARO_MAX_RETRIES", "5"))
     if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
         raise ValueError("JEVARO_MAX_RETRIES must be a nonnegative integer")
+    if connections is None:
+        connections = int(os.environ.get("JEVARO_UPSTREAM_CONNECTIONS", "4"))
+    if isinstance(connections, bool) or not isinstance(connections, int) or connections < 1:
+        raise ValueError("JEVARO_UPSTREAM_CONNECTIONS must be a positive integer")
     retry = RetryPolicy(max_retries=max_retries)
 
     @asynccontextmanager
     async def lifespan(app):
-        # One pool for every incoming request keeps upstream connections warm, and
-        # HTTP/2 multiplexes a batch's parallel calls over one connection. The SDK
+        # Shared pools for every incoming request keep upstream connections warm,
+        # and HTTP/2 multiplexes parallel calls over each connection. TypeSafe
+        # allows 100 calls at a time per connection, and httpx2 opens only one
+        # per pool, so each extra pool adds a connection. Every attempt waits for
+        # its API key's adaptive limit, which backs off on 429 and 529. The SDK
         # inherits this timeout, so match its own default.
-        async with httpx2.AsyncClient(
-            http2=True, timeout=DEFAULT_TIMEOUT, transport=transport,
-        ) as http_client:
-            app.state.http_client = http_client
+        throttles = {}
+        async with AsyncExitStack() as stack:
+            app.state.http_clients = []
+            for _ in range(connections):
+                inner = (transport_factory() if transport_factory
+                         else transport or httpx2.AsyncHTTPTransport(http2=True))
+                app.state.http_clients.append(await stack.enter_async_context(httpx2.AsyncClient(
+                    http2=True, timeout=DEFAULT_TIMEOUT,
+                    transport=ThrottledTransport(inner, throttles, ceiling=100 * connections),
+                )))
+            app.state.in_flight = [0] * connections
+            app.state.throttles = throttles
             yield
 
     app = FastAPI(title="Jevaro", version="0.3.1", lifespan=lifespan)
@@ -163,7 +201,16 @@ def create_app(*, client_factory=AsyncTypeSafeClient, transport=None, concurrenc
         except (ValueError, TypeError) as error:
             raise HTTPException(422, str(error)) from error
 
-    def answer_stream(api_key, schema, questions, model, states):
+    def packing_templates(questions, rows_per_call):
+        """Questions prepared for packing, or None for one row per call."""
+        if rows_per_call == 1:
+            return None
+        try:
+            return templates_for(questions)
+        except PackingError as error:
+            raise HTTPException(422, str(error)) from error
+
+    def answer_stream(api_key, schema, questions, model, states, templates=None, rows_per_call=1):
         async def stream():
             sink = StreamSink()
             writer = pa.ipc.new_stream(sink, schema)
@@ -174,14 +221,18 @@ def create_app(*, client_factory=AsyncTypeSafeClient, transport=None, concurrenc
                     [field.type.array([]) for field in schema], schema=schema,
                 ))
                 yield sink.drain()
-                # This request's key over the shared pool. Never close this client:
-                # the SDK would close the shared pool along with it.
-                client = client_factory(
+                # This request's key over the shared pools. Never close these clients:
+                # the SDK would close the shared pool along with them.
+                clients = [client_factory(
                     api_key=api_key,
                     base_url=os.environ.get("TYPESAFE_UPSTREAM_URL", "https://api.typesafe.ai"),
-                    http_client=app.state.http_client, retry=retry,
-                )
-                responses = ordered_responses(client, states, questions, model, concurrency)
+                    http_client=http_client, retry=retry,
+                ) for http_client in app.state.http_clients]
+                client = clients[0] if len(clients) == 1 else Spread(clients, app.state.in_flight)
+                if templates is None:
+                    responses = ordered_responses(client, states, questions, model, concurrency)
+                else:
+                    responses = packed_responses(client, states, templates, model, concurrency, rows_per_call)
                 try:
                     async for run in responses:
                         writer.write_batch(answer_batch(schema, run))
@@ -222,12 +273,14 @@ def create_app(*, client_factory=AsyncTypeSafeClient, transport=None, concurrenc
                 for detail in error.errors(include_url=False)
             ]) from error
         schema = answer_schema(body.questions)
+        templates = packing_templates(body.questions, body.rows_per_call)
+        check = templates and state_checker(templates)
         try:
             # Checking every row can take seconds for a large table; keep the event loop free.
-            states = await asyncio.to_thread(read_states, states_data, body.state_column)
-        except StatesError as error:
+            states = await asyncio.to_thread(read_states, states_data, body.state_column, check)
+        except (StatesError, PackingError) as error:
             raise HTTPException(422, str(error)) from error
-        return answer_stream(api_key, schema, body.questions, body.model, states)
+        return answer_stream(api_key, schema, body.questions, body.model, states, templates, body.rows_per_call)
 
     class SystemOneRoute(APIRoute):
         """Multipart requests carry Arrow states; FastAPI handles every other body as JSON."""
@@ -250,7 +303,15 @@ def create_app(*, client_factory=AsyncTypeSafeClient, transport=None, concurrenc
     ):
         api_key = api_key_for(authorization)
         states = body.states if body.states is not None else [body.state]
-        return answer_stream(api_key, answer_schema(body.questions), body.questions, body.model, states)
+        schema = answer_schema(body.questions)
+        templates = packing_templates(body.questions, body.rows_per_call)
+        if check := templates and state_checker(templates):
+            try:
+                for row, state in enumerate(states):
+                    check(state, row)
+            except PackingError as error:
+                raise HTTPException(422, str(error)) from error
+        return answer_stream(api_key, schema, body.questions, body.model, states, templates, body.rows_per_call)
 
     app.include_router(router)
     return app

@@ -88,6 +88,7 @@ Plain question objects work too. See the bundled
 | `stateColumn` | With a `Table`, the column whose values are the states |
 | `questions` | A nonempty map of question IDs to definitions |
 | `model` | Override the client's default model |
+| `rowsPerCall` | States per upstream call, 1 to 256; above 1, [packs states](#pack-states-into-fewer-calls) |
 
 Supply exactly one of `state` and `states`. An array in singular `state` is
 one evaluation. Use `states` to evaluate its elements separately.
@@ -171,6 +172,29 @@ for how Arrow types become JSON.
 Create the `Table` with `apache-arrow` 21.2.0, the version this SDK uses. Its
 CommonJS and ES module builds both work; a `Table` from another version is
 rejected with a `TypeError`.
+
+## Pack states into fewer calls
+
+`rowsPerCall` puts up to that many states in each upstream call:
+
+```js
+const reader = await client.systemOne({ states: messages, questions, rowsPerCall: 64 });
+```
+
+The answers have the same schema and row order as without it.
+
+In a live test of short messages with three questions, this raised throughput
+from 1,040 to 2,000 states per second and used 28% fewer input tokens.
+
+There are two tradeoffs:
+
+- **Answers shift slightly, and consistently.** About 1.5% of Choice answers
+  differed from one state per call.
+- **Long states with many questions cost more.** Each question carries its
+  own copy of the state.
+
+See the [HTTP API](https://github.com/columnar-tech/jevaro/blob/main/docs/http-api.md#pack-states-into-fewer-calls)
+for how it works and which questions it rejects.
 
 ## Client configuration
 

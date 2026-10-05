@@ -107,6 +107,21 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(parts["states"][0], "application/vnd.apache.arrow.stream")
         self.assertTrue(pa.ipc.open_stream(parts["states"][1]).read_all().equals(table))
 
+    def test_rows_per_call_is_sent_in_json_and_in_the_request_part(self):
+        client, _ = self.client(values=(0.1, 0.2))
+        with client.system_one(states=["one", "two"], questions={"answer": Noul()}, rows_per_call=32) as reader:
+            reader.read_all()
+        self.assertEqual(json.loads(self.requests[0].content)["rows_per_call"], 32)
+        client, _ = self.client(values=(0.1, 0.2))
+        table = pa.table({"text": ["one", "two"]})
+        with client.system_one(states=table, questions={"answer": Noul()}, rows_per_call=8) as reader:
+            reader.read_all()
+        self.assertEqual(json.loads(form_parts(self.requests[0])["request"][1])["rows_per_call"], 8)
+        client, _ = self.client()
+        with client.system_one(state="one", questions={"answer": Noul()}) as reader:
+            reader.read_all()
+        self.assertNotIn("rows_per_call", json.loads(self.requests[0].content))
+
     def test_arrow_row_count_comes_from_the_table(self):
         client, stream = self.client()
         reader = client.system_one(states=pa.table({"text": ["one", "two"]}), questions={"answer": Noul()})
@@ -120,7 +135,9 @@ class ClientTests(unittest.TestCase):
                      {"states": {"text": ["a"]}}, {"states": ["a"], "state_column": "text"},
                      {"state": "a", "state_column": "text"},
                      {"states": pa.table({"text": pa.array([], pa.string())})},
-                     {"states": pa.chunked_array([[1, 2]])}):
+                     {"states": pa.chunked_array([[1, 2]])},
+                     {"states": ["a"], "rows_per_call": 0}, {"states": ["a"], "rows_per_call": True},
+                     {"states": ["a"], "rows_per_call": 2.0}):
             with self.assertRaises(ValueError):
                 client.system_one(**args, questions={"answer": Noul()})
         self.assertEqual(self.requests, [])

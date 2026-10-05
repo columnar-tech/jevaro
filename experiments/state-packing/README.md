@@ -6,6 +6,9 @@ so the calls work with any client or SDK. The goal is an optional Jevaro
 feature that raises throughput. Everything here is standalone JSON; nothing in
 Jevaro changed.
 
+Jevaro now offers the recommended approach as
+[`rows_per_call`](../../docs/http-api.md#pack-states-into-fewer-calls).
+
 All runs used `jev-1.13.0` on 2026-10-05. The main comparisons use 10,000-row
 runs. Variants were first screened in 320-row pilots.
 

@@ -27,6 +27,7 @@ Send JSON with `Content-Type: application/json`:
 | `states` | A nonempty array of states; no configured element-count limit |
 | `questions` | A nonempty map of string IDs to question definitions |
 | `model` | Nonempty string; defaults to `jev-latest` |
+| `rows_per_call` | Integer from 1 to 256; defaults to 1. Above 1, [packs states](#pack-states-into-fewer-calls) into fewer upstream calls |
 
 Supply exactly one of `state` and `states`. `state: ["a", "b"]` is one
 evaluation; `states: ["a", "b"]` is two. An individual state cannot be a
@@ -50,7 +51,7 @@ To send states as Arrow, POST `multipart/form-data` with two parts:
 
 | Part | Content-Type | Contents |
 | --- | --- | --- |
-| `request` | `application/json` | `questions`, `model`, and optional `state_column` |
+| `request` | `application/json` | `questions`, `model`, and optional `state_column` and `rows_per_call` |
 | `states` | `application/vnd.apache.arrow.stream` | An Arrow IPC stream with one row per state |
 
 The `request` part takes the same `questions` and `model` as a JSON request,
@@ -165,6 +166,101 @@ upload and converts every row once, so a bad row causes a 422 before streaming
 starts. The upload stays in memory as Arrow data. Rows are converted again,
 1,024 at a time, as upstream calls start.
 
+## Pack states into fewer calls
+
+By default, Jevaro makes one upstream call per state. With `rows_per_call`
+above 1, each call evaluates up to that many states. Each state goes into its
+own copy of every question's instructions, and the call's `state` is empty.
+TypeSafe evaluates the questions in a call independently, so states can't
+affect each other's answers.
+
+This request:
+
+```json
+{
+  "states": ["Please refund the shoes.", "Where is my parcel?"],
+  "questions": {"refund": {"type": "noul", "instructions": "Is a refund being requested?"}},
+  "rows_per_call": 2
+}
+```
+
+makes this single upstream call instead of two:
+
+```json
+{
+  "model": "jev-latest",
+  "state": "",
+  "questions": {
+    "0.0": {"type": "noul", "instructions": {"state": "Please refund the shoes.", "question": "Is a refund being requested?"}},
+    "1.0": {"type": "noul", "instructions": {"state": "Where is my parcel?", "question": "Is a refund being requested?"}}
+  }
+}
+```
+
+The response is the same Arrow stream: one row per state, in input order.
+
+- **Object instructions keep their fields.** `state` is added beside them.
+- **Paths are rewritten.** A backticked path that names part of the state is
+  rewritten in instructions and criteria. With the state
+  `{"ticket": {"body": "Please refund the shoes."}}`, the instruction
+  ``"Does `ticket.body` ask for a refund?"`` becomes
+  ``"Does `state.ticket.body` ask for a refund?"``. Choice options and the
+  schema's Score legends keep their original text.
+- **A call can hold fewer states than `rows_per_call`.** Each call is kept to
+  about 48,000 estimated tokens. If TypeSafe still rejects one as too large,
+  Jevaro splits it in two.
+
+**Throughput.** One live test used three questions about short support
+messages (about 180 characters each):
+
+| Setting | States per second |
+| --- | --- |
+| One state per call | 1,040 |
+| `rows_per_call: 64`, 100,000 states | 2,000 |
+| `rows_per_call: 64`, 10,000 states | 9,600 |
+
+The sustained rate is set by TypeSafe's input token rate limit for the
+account. A short job runs faster while TypeSafe's burst allowance lasts. When
+TypeSafe returns 429, Jevaro lowers the number of calls in flight.
+
+**Tradeoffs.**
+
+- **Answers change slightly.** Compared with one state per call, the
+  differences were 2 to 4 times the variation between two unpacked runs.
+  - About 1.5% of Choice answers differed.
+  - A Score with levels 0 to 2 averaged about 0.03 lower.
+
+  The changes are consistent: packed answers don't depend on the batch size,
+  the other states in a call, or a state's position. Don't mix packed and
+  unpacked answers, and recheck any thresholds tuned on unpacked answers.
+- **Cost depends on state length and question count.** Every question carries
+  a copy of its state.
+  - Short states with few questions use fewer input tokens, because calls
+    share a fixed overhead of about 260 tokens: 28% fewer in the test above.
+  - Long states with many questions use more: 1.8 times as many for structured
+    tickets with 6 questions. Under a token rate limit, they're also slower
+    than one state per call once the burst allowance is spent.
+
+**Conflicts.** Before any upstream call, Jevaro rejects two kinds of request
+with 422:
+
+- **A `state` field in instructions.** For example, a question's instructions
+  are `{"state": "CA", "question": "Is this on the west coast?"}`. Rename the
+  field.
+- **A name shared by the instructions and the state.** A question refers in
+  backticks to a field of its instructions object, and a state has a
+  top-level field with the same name. Take these instructions with the state
+  `{"policy": "60-day returns"}`:
+
+  ```json
+  {"policy": "30-day returns", "question": "Is the request covered by `policy`?"}
+  ```
+
+  Once the state moves into the instructions, `` `policy` `` would name only
+  the instructions field. Rename that field.
+
+The error names the question and, for a shared name, the row.
+
 ## Credentials
 
 Send `Authorization: Bearer <TYPESAFE_API_KEY>`, or let the server use its
@@ -208,7 +304,8 @@ HTTP connection cancels pending work.
 An invalid upstream API key is detected after the stream starts. It therefore
 causes an aborted stream, rather than a new HTTP 401 response from Jevaro.
 
-The server uses TypeSafe's default SDK retries, including 429 and 529 backoff.
+The server uses TypeSafe's default SDK retries, including 429 and 529 backoff,
+and lowers the number of calls in flight while TypeSafe returns 429 or 529.
 If retries fail, it stops the stream without null rows or JSON error records.
 The successful Arrow end marker is sent only on normal completion.
 

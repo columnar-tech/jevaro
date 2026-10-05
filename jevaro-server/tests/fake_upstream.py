@@ -22,6 +22,7 @@ class Upstream:
         self.peak = 0
         self.auth_matches = []
         self.http_clients = []
+        self.payloads = []
         self.gate = threading.Event()
         self.transport = httpx2.MockTransport(self.handle)
 
@@ -34,27 +35,48 @@ class Upstream:
 
     async def handle(self, request):
         payload = json.loads(request.content)
+        self.payloads.append(payload)
         state = payload["state"]
-        config = state if isinstance(state, dict) else {}
+        # A packed call has an empty state; each question carries its row's state,
+        # and its key starts with the row's position in the call.
+        questions = payload["questions"]
+        packed = state == "" and all(
+            isinstance(q.get("instructions"), dict) and "state" in q["instructions"] for q in questions.values())
+        if packed:
+            rows = {}
+            for name, question in questions.items():
+                rows.setdefault(name.split(".", 1)[0], question["instructions"]["state"])
+            row_of = {name: rows[name.split(".", 1)[0]] for name in questions}
+            states = list(rows.values())
+        else:
+            row_of = {name: state for name in questions}
+            states = [state]
+        configs = [row if isinstance(row, dict) else {} for row in states]
+        config = configs[0]
         number = config.get("id", 0)
-        self.started.append(state)
+        self.started.extend(states)
         self.auth_matches.append(request.headers.get("Authorization") == "Bearer jevaro-test-key")
         self.attempts[number] += 1
         self.active += 1
         self.peak = max(self.peak, self.active)
         try:
-            if config.get("gate"):
+            if any(c.get("gate") for c in configs):
                 while not self.gate.is_set():
                     await asyncio.sleep(0.005)
-            await asyncio.sleep(config.get("delay", 0))
-            statuses = config.get("statuses", [])
+            await asyncio.sleep(max(c.get("delay", 0) for c in configs))
+            statuses = next((c["statuses"] for c in configs if c.get("statuses")), [])
             attempt = self.attempts[number] - 1
             if attempt < len(statuses):
                 return httpx2.Response(statuses[attempt], json={"error": "test failure"},
                                        headers={"retry-after-ms": "1"})
+            limit = min((c["max_questions"] for c in configs if "max_questions" in c), default=None)
+            if limit is not None and len(questions) > limit:
+                return httpx2.Response(422, json={"error": "too many questions"})
             answers = {}
-            for name, question in payload["questions"].items():
+            for name, question in questions.items():
                 kind = question["type"]
+                row = row_of[name]
+                number = row.get("id", 0) if isinstance(row, dict) else 0
                 if kind == "noul":
                     answers[name] = {"type": kind, "noul": (number % 1000) / 1000}
                 elif kind == "choice":
@@ -72,13 +94,13 @@ class Upstream:
                         "legend": dict(enumerate(levels)),
                         "probabilities": {str(i): 1 / len(levels) for i in range(len(levels))},
                     }
-            self.finished.append(number)
+            self.finished.append(config.get("id", 0))
             return httpx2.Response(200, json={
                 "answers": answers, "model": payload["model"],
                 "usage": {"input_tokens": 42, "output_tokens": 4},
             })
         except asyncio.CancelledError:
-            self.cancelled.append(number)
+            self.cancelled.append(config.get("id", 0))
             raise
         finally:
             self.active -= 1

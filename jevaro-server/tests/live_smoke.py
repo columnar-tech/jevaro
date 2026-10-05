@@ -1,4 +1,4 @@
-"""Optional live check: three states through each SDK, as JSON and as Arrow IPC (12 paid evaluations)."""
+"""Optional live check: three states through each SDK, as JSON and as Arrow IPC, and packed (15 paid evaluations)."""
 
 import json
 import os
@@ -81,6 +81,12 @@ def main():
                                        questions=QUESTIONS) as reader:
                     assert departments(reader.read_all()) == expected
             print("Python: the same 3 states sent as Arrow IPC got the same departments")
+            with TypeSafeClient(base_url=base_url) as client:
+                with client.system_one(states=STATES, questions=QUESTIONS, rows_per_call=3) as reader:
+                    packed = departments(reader.read_all())
+            assert len(packed) == 3
+            same = sum(a == b for a, b in zip(packed, expected))
+            print(f"Python: the same 3 states packed into one call; {same} of 3 departments match")
             javascript = subprocess.run(
                 ["node", str(root / "jevaro-javascript/example.mjs")],
                 env=env, capture_output=True, text=True, timeout=90, check=True,
@@ -93,7 +99,7 @@ def main():
             )
             assert arrow.stdout.splitlines() == expected
             print("JavaScript: the same 3 states sent as an Arrow Table got the same departments")
-            print(f"Twelve live evaluations passed in {time.monotonic() - started:.2f}s")
+            print(f"Fifteen live evaluations passed in {time.monotonic() - started:.2f}s")
         except subprocess.CalledProcessError as error:
             raise RuntimeError(error.stderr) from error
         finally:
