@@ -172,6 +172,31 @@ and SHA-1 hashes match the tested files. API responses were simulated.
 The source tag and tested archives are in the
 [v0.2.0 GitHub release](https://github.com/columnar-tech/jevaro/releases/tag/v0.2.0).
 
+## 0.3.0
+
+All three packages were published on 2026-10-05:
+[Python SDK](https://pypi.org/project/jevaro/0.3.0/),
+[server](https://pypi.org/project/jevaro-server/0.3.0/), and
+[JavaScript SDK](https://www.npmjs.com/package/jevaro/v/0.3.0).
+This release adds Arrow input.
+
+The [PyPI workflow](https://github.com/columnar-tech/jevaro/actions/runs/37324111906)
+and the [npm workflow](https://github.com/columnar-tech/jevaro/actions/runs/37324144555)
+both published from `e0ca0254af125bd998197e335bfa178911c873e5`.
+
+All four compatibility jobs passed in each workflow. Fresh installs from both
+registries passed the SDK, TypeScript, HTTP, and saved-file checks on Python
+3.11 and 3.14. Published READMEs match the source; all Python SHA-256 hashes
+and the npm archive's SHA-512 and SHA-1 hashes match the tested files. API
+responses were simulated for these checks.
+
+Before release, paid live checks sent Arrow states through both SDKs and curl.
+A 10,000-state run with Arrow input reached 457 states per second, in line
+with 464 for JSON input.
+
+The source tag and tested archives are in the
+[v0.3.0 GitHub release](https://github.com/columnar-tech/jevaro/releases/tag/v0.3.0).
+
 ## References checked for this plan
 
 - [PyPA: packaging projects and distribution metadata](https://packaging.python.org/en/latest/tutorials/packaging-projects/)
