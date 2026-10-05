@@ -10,7 +10,7 @@ Each state becomes a row and each question a column. Expand Choice and Score
 cells for confidence, probabilities, and the Score legend.
 Labels and legends come from the Arrow schema metadata.
 
-The script and styles are in the page. It loads `jevaro@0.3.1` and
+The script and styles are in the page. It loads `jevaro@0.4.0` and
 `apache-arrow@21.2.0` from [esm.sh](https://esm.sh/); no build step is needed.
 
 ## Run

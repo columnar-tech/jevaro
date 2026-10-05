@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-10-05
+
+All three packages are released at `0.4.0`.
 
 - The server accepts `rows_per_call`, from 1 to 256, in JSON requests and in
   the Arrow form's `request` part. Above 1, it packs up to that many states

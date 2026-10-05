@@ -283,7 +283,7 @@
   try {
     // Load both from one esm.sh module graph, so the SDK recognizes this page's Arrow tables.
     [{ TypeSafeClient }, { tableFromIPC }] = await Promise.all([
-      import("https://esm.sh/jevaro@0.3.1?target=es2022"),
+      import("https://esm.sh/jevaro@0.4.0?target=es2022"),
       import("https://esm.sh/apache-arrow@21.2.0?target=es2022"),
     ]);
     $("submit").disabled = false;
