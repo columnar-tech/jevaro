@@ -112,8 +112,9 @@ const reader = await client.systemOne({
 
 Each row becomes an object of its columns. Set `stateColumn: "body"` to use
 that column's values as the states instead. Answer rows follow input rows.
-Create the `Table` with the same `apache-arrow` version this SDK uses, 21.2.0;
-a `Table` from another copy of the library is not recognized. See the
+Create the `Table` with `apache-arrow` 21.2.0, the version this SDK uses. Its
+CommonJS and ES module builds both work; a `Table` from another version is
+rejected with a `TypeError`. See the
 [HTTP API](https://github.com/columnar-tech/jevaro/blob/main/docs/http-api.md#arrow-request)
 for how Arrow types become JSON.
 

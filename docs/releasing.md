@@ -31,7 +31,7 @@ python scripts/test_dist.py dist
 
 This creates a temporary Python environment and Node project, installs the
 archives, and runs the Python, JavaScript, TypeScript, and HTTP tests. It also
-saves and decodes an Arrow file. Only tests and examples are copied from the
+saves and decodes an Arrow IPC stream. Only tests and examples are copied from the
 checkout; package code comes from the built archives.
 
 Dependencies are downloaded as needed. API responses are simulated locally;
@@ -187,7 +187,8 @@ Update the server's FastAPI version in `jevaro-server/src/jevaro_server/app.py`.
 For a JavaScript release, update `version` in `jevaro-javascript/package.json`
 and the two `version` fields at the top of its `package-lock.json`. Running
 `npm version X.Y.Z --no-git-tag-version` also works, but it reformats `package.json`.
-Update the browser example's CDN version in its HTML file and README.
+Update the browser example's CDN versions in its HTML file and README. Its
+`apache-arrow` version must match the JavaScript SDK's dependency.
 
 Update the [changelog](../CHANGELOG.md), then build and test all packages
 together. Run the publishing workflow for each registry whose version changed.

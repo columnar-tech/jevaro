@@ -382,6 +382,7 @@ class ProxyTests(unittest.TestCase):
             ("must be application/json", {**form(good), "request": (None, request, "text/plain")}),
             ("states part must be", {**form(good), "states": ("s.csv", b"text\na\n", "text/csv")}),
             ("not a valid Arrow IPC stream", form(b"not arrow")),
+            ("Invalid flatbuffers message", form(b"\xff\xff\xff\xff\x10\x00\x00\x00" + b"\x01" * 16)),
             ("IPC file format", form(file_format.getvalue())),
             ("at least one row", form(pa.table({"text": pa.array([], pa.string())}))),
             ("score contains NaN", form(pa.table({"score": [0.5, float("nan")]}))),

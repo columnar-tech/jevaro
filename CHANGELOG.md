@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Fix: the JavaScript SDK writes an Arrow `Table` with the `apache-arrow` build
+  that created it. In 0.3.0, a `Table` from the ES module build, as in
+  `import { tableFromArrays } from "apache-arrow"` in Node.js, lost its
+  dictionary index types, so the server rejected its string columns.
+- Fix: the server responds with 422, not 500, to Arrow IPC data with
+  malformed metadata.
+- The browser example can send states as Arrow IPC data, with an optional
+  state column. It loads `jevaro` and `apache-arrow` from one esm.sh module graph.
+- The live smoke test also sends Arrow IPC through each SDK.
+
 ## 0.3.0 — 2026-10-05
 
 All three packages are released at `0.3.0`.

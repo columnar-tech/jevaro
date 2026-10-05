@@ -199,7 +199,7 @@ def read_states(data, state_column=None):
         raise StatesError("states uses the Arrow IPC file format; send the IPC stream format")
     try:
         table = pa.ipc.open_stream(pa.py_buffer(data)).read_all()
-    except pa.ArrowException as error:
+    except (pa.ArrowException, OSError) as error:  # Malformed metadata raises a plain OSError.
         raise StatesError(f"states is not a valid Arrow IPC stream: {error}") from error
     states = States(table, state_column)
     states.validate()

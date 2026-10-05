@@ -115,6 +115,17 @@ test("an Arrow Table is sent as a multipart form with JSON request fields", asyn
   assert.deepEqual(decoded.toArray().map(row => row.toJSON()), [{ id: 1, text: "one" }, { id: 2, text: "two" }]);
 });
 
+test("a Table from apache-arrow's ES module build is written by that build", async () => {
+  const esm = await import("apache-arrow");
+  assert.notEqual(esm.Table, require("apache-arrow").Table);
+  let sent;
+  const client = new TypeSafeClient({ fetch: async (url, options) => { sent = options.body; return response(); } });
+  // tableFromArrays dictionary-encodes strings; the other build's writer would drop the index type.
+  const table = esm.tableFromArrays({ text: ["one"] });
+  await (await client.systemOne({ states: table, questions: { n: noul() } })).readAll();
+  assert.deepEqual(new Uint8Array(await sent.get("states").arrayBuffer()), esm.tableToIPC(table, "stream"));
+});
+
 test("an Arrow Table sets the expected row count", async () => {
   const client = new TypeSafeClient({ fetch: async () => response() });
   const reader = await client.systemOne({ states: tableFromArrays({ text: ["one", "two"] }), questions: { n: noul() } });

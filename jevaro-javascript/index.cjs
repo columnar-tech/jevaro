@@ -1,9 +1,20 @@
 "use strict";
 
-const { RecordBatchReader, Table, tableToIPC } = require("apache-arrow");
+const arrow = require("apache-arrow");
 const { choice, noul, score } = require("@typesafe-ai/sdk");
 
+const { RecordBatchReader, Table } = arrow;
 const MEDIA_TYPE = "application/vnd.apache.arrow.stream";
+
+// apache-arrow ships separate CommonJS and ES module builds. Each build's
+// `instanceof Table` accepts the other's tables, but its writer then drops
+// dictionary index types. Write a Table with the build that created it.
+async function writeStates(table) {
+  if (Table.prototype.isPrototypeOf(table)) return arrow.tableToIPC(table, "stream");
+  const esm = await import("apache-arrow");
+  if (esm.Table.prototype.isPrototypeOf(table)) return esm.tableToIPC(table, "stream");
+  throw new TypeError("Create Arrow states with the apache-arrow version this SDK uses");
+}
 
 class APIError extends Error {
   constructor(status, body) {
@@ -64,7 +75,7 @@ class TypeSafeClient {
         if (stateColumn !== undefined) json.state_column = stateColumn;
         payload = new FormData();
         payload.append("request", new Blob([JSON.stringify(json)], { type: "application/json" }));
-        payload.append("states", new Blob([tableToIPC(states, "stream")], { type: MEDIA_TYPE }), "states.arrows");
+        payload.append("states", new Blob([await writeStates(states)], { type: MEDIA_TYPE }), "states.arrows");
       } else {
         payload = JSON.stringify({ ...request, model: request.model ?? this.defaultModel });
       }

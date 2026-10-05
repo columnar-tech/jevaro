@@ -45,6 +45,13 @@ run("Arrow Table rows become states in input order", async () => {
   assert.equal((await byColumn.readAll()).reduce((count, batch) => count + batch.numRows, 0), 3);
 });
 
+run("a Table from apache-arrow's ES module build reaches the server intact", async () => {
+  const { tableFromArrays: esmTableFromArrays } = await import("apache-arrow");
+  const table = esmTableFromArrays({ text: ["a", "b"] });
+  const reader = await client.systemOne({ states: table, stateColumn: "text", questions });
+  assert.equal((await reader.readAll()).reduce((count, batch) => count + batch.numRows, 0), 2);
+});
+
 run("upstream failure propagates as a broken HTTP stream", async () => {
   const reader = await client.systemOne({ states: [{ id: 5 }, { id: 6, statuses: [401] }], questions });
   await assert.rejects(reader.readAll());

@@ -15,6 +15,12 @@
   input, textarea { width: 100%; padding: 10px 12px; border: 1px solid #aab5b0; border-radius: 3px; background: white; color: inherit; }
   input { max-width: 460px; }
   textarea { height: 320px; resize: vertical; tab-size: 2; font: 13px/1.6 Menlo, Consolas, monospace; }
+  input[type="radio"] { width: auto; margin: 0; }
+  .source { display: flex; flex-wrap: wrap; gap: 4px 20px; margin-bottom: 6px; }
+  .source legend { float: left; margin-right: 4px; padding: 0; font-weight: bold; }
+  .source label { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-weight: normal; }
+  #arrow-states input { margin-bottom: 16px; }
+  .hint { margin: 0 0 16px; color: #4c5a56; }
   .editors { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0 16px; }
   .editors > div { min-width: 0; }
   button { padding: 9px 20px; border: 1px solid #176354; border-radius: 3px; background: #176354; color: white; cursor: pointer; }
@@ -38,7 +44,7 @@
 </style>
 
 <h1>Jevaro</h1>
-<p>Send a batch of states to Jev. Read the answers as an Arrow stream.</p>
+<p>Send a batch of states to Jev, as JSON or Arrow IPC. Read the answers as an Arrow stream.</p>
 
 <form id="request">
   <fieldset id="inputs">
@@ -46,12 +52,23 @@
     <input id="server" type="url" value="http://127.0.0.1:8000" required>
     <div class="editors">
       <div>
-        <label for="states">States · JSON array</label>
-        <textarea id="states" spellcheck="false" required>[
+        <fieldset class="source">
+          <legend>States</legend>
+          <label><input type="radio" name="source" value="json" checked> JSON array</label>
+          <label><input type="radio" name="source" value="arrow"> Arrow IPC</label>
+        </fieldset>
+        <textarea id="states" aria-label="States as a JSON array" spellcheck="false" required>[
   "The shoes don't fit. Please refund my money today.",
   "My parcel is marked delivered but isn't here. Please help me find it.",
   "I was charged twice for my coffee maker. Please fix the duplicate charge this week."
 ]</textarea>
+        <div id="arrow-states" hidden>
+          <label for="file">Arrow IPC data (stream or file format)</label>
+          <input id="file" type="file" accept=".arrows,.arrow,.feather">
+          <label for="state-column">State column (optional)</label>
+          <input id="state-column" type="text" spellcheck="false" placeholder="Leave empty to send whole rows">
+          <p class="hint">Each row becomes one state: an object of its columns, or the value in the state column.</p>
+        </div>
       </div>
       <div>
         <label for="questions">Questions · JSON object</label>
@@ -108,7 +125,31 @@
     return node;
   };
   let TypeSafeClient;
+  let tableFromIPC;
   let controller;
+
+  const arrowSource = () => document.querySelector('input[name="source"]:checked').value === "arrow";
+  function showSource() {
+    // A disabled textarea is skipped by form validation while Arrow IPC is selected.
+    $("states").hidden = $("states").disabled = arrowSource();
+    $("arrow-states").hidden = !arrowSource();
+  }
+  for (const radio of document.querySelectorAll('input[name="source"]')) {
+    radio.addEventListener("change", showSource);
+  }
+  showSource();  // The browser may restore a selection after a reload.
+
+  async function readArrowFile() {
+    const file = $("file").files[0];
+    if (!file) throw new Error("Choose Arrow IPC data to send.");
+    // Replace the previous request's status before the first await.
+    $("status").textContent = `Reading ${file.name}…`;
+    let table;
+    try { table = tableFromIPC(new Uint8Array(await file.arrayBuffer())); }
+    catch (error) { throw new Error(`Could not read ${file.name} as Arrow IPC: ${error.message}`); }
+    if (!table.numRows) throw new Error(`${file.name} has no rows.`);
+    return table;
+  }
 
   // Decode answers using only the returned Arrow fields and their metadata.
   function readField(field) {
@@ -181,16 +222,21 @@
     $("rows").replaceChildren();
 
     try {
-      const states = parseJSON("states");
+      const arrow = arrowSource();
+      const states = arrow ? await readArrowFile() : parseJSON("states");
       const questions = parseJSON("questions");
-      if (!Array.isArray(states) || !states.length) throw new Error("States must be a nonempty JSON array.");
+      if (!arrow && (!Array.isArray(states) || !states.length)) throw new Error("States must be a nonempty JSON array.");
       if (!questions || Array.isArray(questions) || typeof questions !== "object" || !Object.keys(questions).length) {
         throw new Error("Questions must be a nonempty JSON object.");
       }
-      expected = states.length;
+      // An Arrow table goes to Jevaro as an IPC stream; each row is one state.
+      const request = { states, questions };
+      const stateColumn = $("state-column").value.trim();
+      if (arrow && stateColumn) request.stateColumn = stateColumn;
+      expected = arrow ? states.numRows : states.length;
       $("status").textContent = `Waiting for the Arrow schema (${expected} states)…`;
       const client = new TypeSafeClient({ baseURL: $("server").value.trim() });
-      reader = await client.systemOne({ states, questions }, { signal: controller.signal });
+      reader = await client.systemOne(request, { signal: controller.signal });
 
       // Save the schema before iteration: Arrow clears it when the reader closes.
       const fields = reader.schema.fields.map(readField);
@@ -235,7 +281,11 @@
   });
 
   try {
-    ({ TypeSafeClient } = await import("https://esm.sh/jevaro@0.3.0?standalone&target=es2022"));
+    // Load both from one esm.sh module graph, so the SDK recognizes this page's Arrow tables.
+    [{ TypeSafeClient }, { tableFromIPC }] = await Promise.all([
+      import("https://esm.sh/jevaro@0.3.0?target=es2022"),
+      import("https://esm.sh/apache-arrow@21.2.0?target=es2022"),
+    ]);
     $("submit").disabled = false;
     $("status").textContent = "Ready.";
   } catch (error) {
