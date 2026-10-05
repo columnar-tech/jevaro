@@ -51,6 +51,9 @@ authentication in front of a shared server.
 `POST /v1/systemone` accepts a nonempty `states` array and one `questions` map
 for the whole batch. Use `state` for a single evaluation.
 
+To send the states as Arrow instead, POST `multipart/form-data` with a JSON
+`request` part and an Arrow IPC `states` part. Each row becomes one state.
+
 After validating the request, the server sends the schema and an empty batch
 before starting upstream calls. Each later batch holds the next answer row
 plus any later rows that have already finished, in input order.
@@ -65,7 +68,8 @@ for the request and result formats.
 
 ## Limits
 
-The full JSON request is held in memory. Pending calls and completed answers
+The full request is held in memory. An Arrow upload stays as Arrow data, and
+its rows are converted to JSON as upstream calls start. Pending calls and completed answers
 waiting for their turn are bounded by `JEVARO_CONCURRENCY`. A slow earlier
 call delays later rows. Closing the stream cancels pending work; calls already
 sent upstream may still finish and count as API use.

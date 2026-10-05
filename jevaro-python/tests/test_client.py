@@ -1,5 +1,8 @@
 import io
+import json
 import unittest
+from email.parser import BytesParser
+from email.policy import HTTP
 
 import httpx2
 import pyarrow as pa
@@ -27,12 +30,20 @@ class Chunks(httpx2.SyncByteStream):
         self.closed = True
 
 
+def form_parts(request):
+    message = BytesParser(policy=HTTP).parsebytes(
+        f"Content-Type: {request.headers['content-type']}\r\n\r\n".encode() + request.content)
+    return {part.get_param("name", header="content-disposition"):
+            (part.get_content_type(), part.get_payload(decode=True)) for part in message.iter_parts()}
+
+
 class ClientTests(unittest.TestCase):
     def client(self, values=(0.12345678901234567,), status=200, content_type="application/vnd.apache.arrow.stream"):
         client = TypeSafeClient(api_key="test-key")
         client._http.close()
         stream = Chunks(ipc(values))
-        client._http = httpx2.Client(transport=httpx2.MockTransport(lambda request: httpx2.Response(
+        self.requests = []
+        client._http = httpx2.Client(transport=httpx2.MockTransport(lambda request: self.requests.append(request) or httpx2.Response(
             status, stream=stream, headers={"Content-Type": content_type},
         )))
         self.addCleanup(client.close)
@@ -79,11 +90,40 @@ class ClientTests(unittest.TestCase):
             client.system_one(state="one", questions={"answer": Noul()})
         self.assertTrue(stream.closed)
 
+    def test_arrow_states_are_sent_as_a_multipart_form(self):
+        client, _ = self.client(values=(0.1, 0.2))
+        table = pa.table({"id": [1, 2], "text": ["one", "two"]})
+        with client.system_one(states=table, state_column="text", questions={"answer": Noul()}) as reader:
+            self.assertEqual(reader.read_all().num_rows, 2)
+        request, = self.requests
+        self.assertTrue(request.headers["content-type"].startswith("multipart/form-data; boundary="))
+        parts = form_parts(request)
+        self.assertEqual(list(parts), ["request", "states"])
+        self.assertEqual(parts["request"][0], "application/json")
+        self.assertEqual(json.loads(parts["request"][1]), {
+            "model": "jev-latest", "questions": {"answer": Noul().model_dump(mode="json")},
+            "state_column": "text",
+        })
+        self.assertEqual(parts["states"][0], "application/vnd.apache.arrow.stream")
+        self.assertTrue(pa.ipc.open_stream(parts["states"][1]).read_all().equals(table))
+
+    def test_arrow_row_count_comes_from_the_table(self):
+        client, stream = self.client()
+        reader = client.system_one(states=pa.table({"text": ["one", "two"]}), questions={"answer": Noul()})
+        with self.assertRaisesRegex(OSError, "expected 2 rows, got 1"):
+            reader.read_all()
+        self.assertTrue(stream.closed)
+
     def test_invalid_arguments(self):
         client, _ = self.client()
-        for args in ({}, {"states": []}, {"states": "no"}, {"state": "a", "states": ["b"]}):
+        for args in ({}, {"states": []}, {"states": "no"}, {"state": "a", "states": ["b"]},
+                     {"states": {"text": ["a"]}}, {"states": ["a"], "state_column": "text"},
+                     {"state": "a", "state_column": "text"},
+                     {"states": pa.table({"text": pa.array([], pa.string())})},
+                     {"states": pa.chunked_array([[1, 2]])}):
             with self.assertRaises(ValueError):
                 client.system_one(**args, questions={"answer": Noul()})
+        self.assertEqual(self.requests, [])
 
 
 if __name__ == "__main__":

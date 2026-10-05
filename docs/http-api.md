@@ -1,6 +1,7 @@
 # HTTP API
 
 Jevaro accepts TypeSafe System One questions and returns an Arrow IPC stream.
+Send the states as JSON, or as an [Arrow IPC stream](#arrow-request).
 The local default endpoint is `POST http://127.0.0.1:8000/v1/systemone`.
 
 ## Request
@@ -43,6 +44,57 @@ Instructions and descriptions can use strings, objects, or arrays. The proxy
 accepts omitted or null instructions, as the SDK question helpers do.
 Every state uses the same questions and model.
 
+## Arrow request
+
+To send states as Arrow, POST `multipart/form-data` with two parts:
+
+| Part | Content-Type | Contents |
+| --- | --- | --- |
+| `request` | `application/json` | `questions`, `model`, and optional `state_column` |
+| `states` | `application/vnd.apache.arrow.stream` | An Arrow IPC stream with one row per state |
+
+This follows the multipart example in Apache Arrow's
+[HTTP experiments](https://github.com/apache/arrow-experiments/tree/main/http/post_multipart).
+The response is the same Arrow stream as for a JSON request.
+
+```sh
+curl --fail-with-body --no-buffer http://127.0.0.1:8000/v1/systemone \
+  -F 'request=<request.json;type=application/json' \
+  -F 'states=@tickets.arrows;type=application/vnd.apache.arrow.stream' \
+  --output http-results.arrows
+```
+
+The `request` part takes the same `questions` and `model` as a JSON request,
+and rejects `state` and `states`. A part may omit its Content-Type; `states`
+may also use `application/octet-stream`. Any other part is rejected.
+
+By default, each row becomes an object of its columns, as PyArrow's
+`table.to_pylist()` would produce. Instructions can refer to a column by name,
+such as `` `body` ``. With `"state_column": "body"`, that column's values are
+the states and other columns are ignored. A state column must hold strings,
+structs, lists, maps, or `arrow.json` values, with no nulls.
+
+| Arrow type | JSON value |
+| --- | --- |
+| String, large string, string view | String |
+| Boolean, integer, float | Boolean or number; NaN and infinities are rejected |
+| Date, time, timestamp, decimal | String from Arrow's cast, such as `2024-01-02 03:04:05.123456` or `12.50` |
+| Struct | Object |
+| List, large list, fixed-size list | Array |
+| Map with string keys | Object; duplicate keys are rejected |
+| Dictionary | Its decoded value |
+| `arrow.json` extension | The parsed JSON value |
+| Null | `null` |
+
+A null inside a row becomes `null`. Other types, including binary, list views,
+durations, and unions, are rejected. Send the IPC stream format; the IPC file
+format is rejected.
+
+The server checks the API key before reading the body. It then reads the whole
+upload and converts every row once, so a bad row causes a 422 before streaming
+starts. The upload stays in memory as Arrow data. Rows are converted again,
+1,024 at a time, as upstream calls start.
+
 ## Credentials
 
 Send `Authorization: Bearer <TYPESAFE_API_KEY>`, or let the server use its
@@ -71,7 +123,7 @@ Columns follow the question order in the request; rows follow state order,
 even if upstream calls finish out of order. A slow earlier call delays later
 rows. The [schema](arrow-schema.md) holds the shared answer metadata.
 
-The full JSON request is held in memory. Pending calls and results are bounded
+The full request is held in memory. Pending calls and results are bounded
 by the [concurrency setting](../jevaro-server/README.md#limits). Closing the
 HTTP connection cancels pending work.
 

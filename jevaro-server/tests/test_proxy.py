@@ -1,4 +1,7 @@
 import asyncio
+import datetime
+import decimal
+import io
 import json
 import os
 from pathlib import Path
@@ -27,6 +30,32 @@ QUESTIONS = {
     "refund": Noul(instructions="Refund?"),
 }
 RAW_QUESTIONS = {name: q.model_dump(mode="json") for name, q in QUESTIONS.items()}
+MEDIA_TYPE = "application/vnd.apache.arrow.stream"
+
+
+def ipc_stream(table, max_chunksize=None):
+    sink = io.BytesIO()
+    with pa.ipc.new_stream(sink, table.schema) as writer:
+        writer.write_table(table, max_chunksize=max_chunksize)
+    return sink.getvalue()
+
+
+def form(states, request=None):
+    request = {"questions": RAW_QUESTIONS} if request is None else request
+    return {
+        "request": (None, json.dumps(request).encode(), "application/json"),
+        "states": ("states.arrows", states if isinstance(states, bytes) else ipc_stream(states), MEDIA_TYPE),
+    }
+
+
+class Exportable:
+    """Any tabular producer with the Arrow PyCapsule stream interface, like Polars."""
+
+    def __init__(self, table):
+        self.table = table
+
+    def __arrow_c_stream__(self, requested_schema=None):
+        return self.table.__arrow_c_stream__(requested_schema)
 
 
 class ProxyTests(unittest.TestCase):
@@ -259,6 +288,166 @@ class ProxyTests(unittest.TestCase):
         self.assertEqual(len(rows), 3)
         self.assertEqual(rows[0]["department"], "returns")
         self.assertTrue(all(self.upstream.auth_matches))
+
+    def post_form(self, files=None, **kwargs):
+        with httpx2.Client(base_url=self.base_url, headers={"Authorization": "Bearer jevaro-test-key"}) as client:
+            return client.post("/v1/systemone", files=files, **kwargs)
+
+    def test_arrow_rows_become_objects_and_match_json_states(self):
+        table = pa.table({"id": pa.array([3, 1, 2], pa.int64()), "text": ["c", "a", "b"],
+                          "tags": pa.array([["x"], [], None], pa.list_(pa.string()))})
+        response = self.post_form(form(table))
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.headers["content-type"], MEDIA_TYPE)
+        self.assertEqual(response.headers["x-jevaro-row-count"], "3")
+        from_arrow = pa.ipc.open_stream(response.content).read_all()
+        self.assertEqual(from_arrow["refund"].to_pylist(), [0.003, 0.001, 0.002])
+        self.assertCountEqual(self.upstream.started, table.to_pylist())
+        with self.client.system_one(states=table.to_pylist(), questions=QUESTIONS) as reader:
+            self.assertTrue(from_arrow.equals(reader.read_all(), check_metadata=True))
+
+    def test_arrow_state_column_values_are_the_states(self):
+        table = pa.table({
+            "id": [1, 2],
+            "text": ["Please refund the shoes.", "Where is my parcel?"],
+            "ticket": [{"id": 5, "subject": "Shoes"}, {"id": 6, "subject": "Parcel"}],
+            "raw": pa.array(['{"id": 7, "lines": [1, 2.5]}', '"plain text"'], pa.json_()),
+            "words": [["refund"], ["parcel", "where"]],
+        })
+        for column, expected, refunds in (
+            ("text", ["Please refund the shoes.", "Where is my parcel?"], [0.0, 0.0]),
+            ("ticket", [{"id": 5, "subject": "Shoes"}, {"id": 6, "subject": "Parcel"}], [0.005, 0.006]),
+            ("raw", [{"id": 7, "lines": [1, 2.5]}, "plain text"], [0.007, 0.0]),
+            ("words", [["refund"], ["parcel", "where"]], [0.0, 0.0]),
+        ):
+            self.upstream.started.clear()
+            response = self.post_form(form(table, {"questions": RAW_QUESTIONS, "state_column": column}))
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(pa.ipc.open_stream(response.content).read_all()["refund"].to_pylist(), refunds)
+            self.assertCountEqual(self.upstream.started, expected)
+
+    def test_arrow_types_become_json_values(self):
+        nested = pa.StructArray.from_arrays(
+            [pa.array([datetime.date(2024, 1, 3)]), pa.array([None], pa.string()),
+             pa.array(['{"k": [true, null]}'], pa.json_())],
+            names=["when", "missing", "data"],
+        )
+        table = pa.table({
+            "id": pa.array([1], pa.uint64()),
+            "flag": [True],
+            "half": pa.array([1.5], pa.float16()),
+            "day": pa.array([datetime.date(2024, 1, 2)]),
+            "at": pa.array([1_700_000_000_123_456_789], pa.timestamp("ns", "UTC")),
+            "price": pa.array([decimal.Decimal("12.50")], pa.decimal128(10, 2)),
+            "label": pa.array(["gold"]).dictionary_encode(),
+            "attributes": pa.array([[("color", "red")]], pa.map_(pa.string(), pa.string())),
+            "pair": pa.array([[1.0, 2.0]], pa.list_(pa.float64(), 2)),
+            "view": pa.array(["v"], pa.string_view()),
+            "large": pa.array([["a"]], pa.large_list(pa.large_string())),
+            "nested": nested,
+        })
+        response = self.post_form(form(table))
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.upstream.started, [{
+            "id": 1, "flag": True, "half": 1.5, "day": "2024-01-02",
+            "at": "2023-11-14 22:13:20.123456789Z", "price": "12.50", "label": "gold",
+            "attributes": {"color": "red"}, "pair": [1.0, 2.0], "view": "v", "large": ["a"],
+            "nested": {"when": "2024-01-03", "missing": None, "data": {"k": [True, None]}},
+        }])
+
+    def test_arrow_rows_cross_chunks_and_batches_in_order(self):
+        table = pa.table({"id": pa.array(range(10), pa.int64())})
+        with patch("jevaro_server.states.ROWS_PER_CHUNK", 4):
+            response = self.post_form(form(ipc_stream(table, max_chunksize=3)))
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(pa.ipc.open_stream(response.content).read_all()["refund"].to_pylist(),
+                         [i / 1000 for i in range(10)])
+
+    def test_arrow_input_is_validated_before_upstream(self):
+        good = ipc_stream(pa.table({"text": ["a"]}))
+        request = json.dumps({"questions": RAW_QUESTIONS}).encode()
+        file_format = io.BytesIO()
+        with pa.ipc.new_file(file_format, pa.schema([("text", pa.string())])) as writer:
+            writer.write_table(pa.table({"text": ["a"]}))
+
+        def states(table, **request):
+            return form(table, {"questions": RAW_QUESTIONS, **request})
+
+        cases = [
+            ("Missing part 'states'", {"request": (None, request, "application/json")}),
+            ("Missing part 'request'", {"states": ("s.arrows", good, MEDIA_TYPE)}),
+            ("Unexpected part 'extra'", {**form(good), "extra": (None, b"x", None)}),
+            ("Duplicate part 'request'", [("request", (None, request, None))] * 2
+             + [("states", ("s.arrows", good, None))]),
+            ("must be application/json", {**form(good), "request": (None, request, "text/plain")}),
+            ("states part must be", {**form(good), "states": ("s.csv", b"text\na\n", "text/csv")}),
+            ("not a valid Arrow IPC stream", form(b"not arrow")),
+            ("IPC file format", form(file_format.getvalue())),
+            ("at least one row", form(pa.table({"text": pa.array([], pa.string())}))),
+            ("score contains NaN", form(pa.table({"score": [0.5, float("nan")]}))),
+            ("scores[] contains NaN", form(pa.table({"scores": [[1.0, float("inf")]]}))),
+            ("unsupported Arrow type binary", form(pa.table({"blob": [b"x"]}))),
+            ("unsupported Arrow type list_view", form(pa.table({"v": pa.array([[1]], pa.list_view(pa.int64()))}))),
+            ("duplicate column names", form(pa.table([pa.array(["a"]), pa.array(["b"])], names=["x", "x"]))),
+            ("map with int64 keys", form(pa.table({"m": pa.array([[(1, "a")]], pa.map_(pa.int64(), pa.string()))}))),
+            ("duplicate keys", form(pa.table({"m": pa.array([[("a", 1), ("a", 2)]], pa.map_(pa.string(), pa.int64()))}))),
+            ("invalid arrow.json value", form(pa.table({"j": pa.array(["{nope"], pa.json_())}))),
+            ("NaN is not valid JSON", form(pa.table({"j": pa.array(["[NaN]"], pa.json_())}))),
+            ("must name exactly one column", states(pa.table({"text": ["a"]}), state_column="body")),
+            ("has type int64", states(pa.table({"n": [1]}), state_column="n")),
+            ("Row 1: text is null", states(pa.table({"text": ["a", None]}), state_column="text")),
+            ("Row 0: a JSON state must be", states(pa.table({"j": pa.array(["1"], pa.json_())}), state_column="j")),
+            ("extra_forbidden", states(pa.table({"text": ["a"]}), states=["b"])),
+            ("Choice requires 1 to 255 options", form(good, {"questions": {"c": {"type": "choice", "criteria": {}}}})),
+            ("json_invalid", {**form(good), "request": (None, b"{bad", None)}),
+        ]
+        for expected, files in cases:
+            with self.subTest(expected):
+                response = self.post_form(files)
+                self.assertEqual(response.status_code, 422, response.text)
+                self.assertIn(expected, response.text)
+        boundary = "jevaro-test-boundary"
+        malformed = [
+            ("requires a boundary", "multipart/form-data", b"--x\r\n"),
+            ("Incomplete multipart body", f"multipart/form-data; boundary={boundary}",
+             f'--{boundary}\r\nContent-Disposition: form-data; name="request"\r\n\r\n{{}}'.encode()),
+        ]
+        for expected, content_type, content in malformed:
+            with self.subTest(expected):
+                response = self.post_form(content=content, headers={"Content-Type": content_type})
+                self.assertEqual(response.status_code, 422, response.text)
+                self.assertIn(expected, response.text)
+        self.assertEqual(self.upstream.started, [])
+
+    def test_arrow_form_checks_the_key_before_the_body(self):
+        with patch.dict(os.environ, {"TYPESAFE_API_KEY": ""}):
+            with httpx2.Client(base_url=self.base_url) as client:
+                response = client.post("/v1/systemone", files=form(pa.table({"text": ["a"]})))
+                self.assertEqual(response.status_code, 401)
+                response = client.post("/v1/systemone", files=form(b"not arrow"))
+                self.assertEqual(response.status_code, 401)
+        with patch.dict(os.environ, {"TYPESAFE_API_KEY": "jevaro-test-key"}):
+            with httpx2.Client(base_url=self.base_url) as client:
+                response = client.post("/v1/systemone", files=form(pa.table({"text": ["a"]})))
+                self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(all(self.upstream.auth_matches))
+
+    def test_python_sdk_sends_arrow_states(self):
+        table = pa.table({"id": [4, 5], "text": ["a", "b"]})
+        for states in (table, table.to_batches()[0], table.to_reader(), Exportable(table)):
+            with self.client.system_one(states=states, questions=QUESTIONS) as reader:
+                self.assertEqual(reader.read_all()["refund"].to_pylist(), [0.004, 0.005])
+        self.upstream.started.clear()
+        with self.client.system_one(states=table, state_column="text", questions=QUESTIONS) as reader:
+            self.assertEqual(reader.read_all().num_rows, 2)
+        self.assertCountEqual(self.upstream.started, ["a", "b"])
+
+        async def run():
+            async with AsyncTypeSafeClient(api_key="jevaro-test-key", base_url=self.base_url) as client:
+                async with await client.system_one(states=table, questions=QUESTIONS) as reader:
+                    table_result = await reader.read_all()
+                    self.assertEqual(table_result["refund"].to_pylist(), [0.004, 0.005])
+        asyncio.run(run())
 
 
 if __name__ == "__main__":

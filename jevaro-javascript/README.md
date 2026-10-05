@@ -84,12 +84,38 @@ Plain question objects work too. See the bundled
 | Request field | Meaning |
 | --- | --- |
 | `state` | One string, object, or array |
-| `states` | A nonempty array of states |
+| `states` | A nonempty array of states, or an [Arrow `Table`](#arrow-states) |
+| `stateColumn` | With a `Table`, the column whose values are the states |
 | `questions` | A nonempty map of question IDs to definitions |
 | `model` | Override the client's default model |
 
 Supply exactly one of `state` and `states`. An array in singular `state` is
 one evaluation. Use `states` to evaluate its elements separately.
+
+## Arrow states
+
+`states` also accepts an Apache Arrow `Table`. The SDK sends it as an Arrow
+IPC stream.
+
+```javascript
+import { tableFromArrays } from "apache-arrow";
+
+const tickets = tableFromArrays({
+  subject: ["Shoes", "Parcel"],
+  body: ["Please refund the shoes.", "Where is my parcel?"],
+});
+const reader = await client.systemOne({
+  states: tickets,
+  questions: { refund: noul("Does `body` request a refund?") },
+});
+```
+
+Each row becomes an object of its columns. Set `stateColumn: "body"` to use
+that column's values as the states instead. Answer rows follow input rows.
+Create the `Table` with the same `apache-arrow` version this SDK uses, 21.2.0;
+a `Table` from another copy of the library is not recognized. See the
+[HTTP API](https://github.com/columnar-tech/jevaro/blob/main/docs/http-api.md#arrow-request)
+for how Arrow types become JSON.
 
 The optional second argument accepts `headers`, `timeout` in milliseconds,
 and an `AbortSignal` as `signal`. A signal can cancel after the schema arrives.

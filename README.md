@@ -67,8 +67,9 @@ readers. The batching proxy handles concurrent upstream calls, retries,
 ordering, and conversion from JSON to Arrow. See
 [configuration and limits](jevaro-server/README.md#limits) for details.
 
-We’re exploring Arrow input, better adaptation to evolving API rate limits,
-and output record batch sizes. [Open an issue](https://github.com/columnar-tech/jevaro/issues)
+States can be sent as JSON or as an Arrow table; see the
+[HTTP API](docs/http-api.md#arrow-request). We’re exploring better adaptation
+to evolving API rate limits and output record batch sizes. [Open an issue](https://github.com/columnar-tech/jevaro/issues)
 to share ideas.
 
 See the [release plan](docs/release-plan.md) for publication progress.

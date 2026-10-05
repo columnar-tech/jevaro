@@ -1,6 +1,7 @@
 // Invoked against the offline HTTP fixture by jevaro-server/tests/test_proxy.py.
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const { tableFromArrays } = require("apache-arrow");
 const { TypeSafeClient, choice, score, noul } = require("jevaro");
 
 const run = process.env.JEVARO_TEST_URL ? test : test.skip;
@@ -31,6 +32,17 @@ run("all three Python Arrow extension storage types decode in JavaScript in inpu
   assert.equal(rows[0].department.confidence, 0.12345678901234567);
   assert.equal(rows[0].urgency.score, 0.9876543210987654);
   assert.deepEqual([...rows[0].urgency.probabilities], [0.5, 0.5]);
+});
+
+run("Arrow Table rows become states in input order", async () => {
+  const table = tableFromArrays({ id: Int32Array.from([31, 32, 33]), text: ["a", "b", "c"] });
+  const rows = [];
+  for await (const batch of await client.systemOne({ states: table, questions })) {
+    for (const row of batch) rows.push(row);
+  }
+  assert.deepEqual(rows.map(r => r.refund), [0.031, 0.032, 0.033]);
+  const byColumn = await client.systemOne({ states: table, stateColumn: "text", questions });
+  assert.equal((await byColumn.readAll()).reduce((count, batch) => count + batch.numRows, 0), 3);
 });
 
 run("upstream failure propagates as a broken HTTP stream", async () => {

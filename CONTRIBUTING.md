@@ -30,7 +30,7 @@ npm --prefix jevaro-javascript run typecheck
 
 These tests need no TypeSafe key and make no paid API calls. The server suite
 opens local HTTP ports and tests both SDKs against a fake upstream. Running
-`npm test` alone skips the four HTTP integration tests; the server suite runs
+`npm test` alone skips the five HTTP integration tests; the server suite runs
 them.
 
 For an optional live check, set `TYPESAFE_API_KEY` and run:

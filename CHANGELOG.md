@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- The server accepts states as Arrow: a `multipart/form-data` request with a
+  JSON `request` part and an Arrow IPC `states` part. Each row becomes an
+  object of its columns, or the value in `state_column`. Every row is checked
+  before streaming starts. The server now depends on `python-multipart`.
+- The Python SDK sends tabular Arrow data passed as `states`, including any
+  object with `__arrow_c_stream__`, and accepts `state_column`.
+- The JavaScript SDK sends an Arrow `Table` passed as `states`, and accepts
+  `stateColumn`.
+
 ## 0.2.0 — 2026-09-29
 
 All three packages are released at `0.2.0`.

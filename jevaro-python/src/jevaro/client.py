@@ -2,8 +2,10 @@
 
 import asyncio
 import io
+import json
 import os
 from collections.abc import Mapping
+from typing import Protocol
 
 import httpx2
 import pyarrow as pa
@@ -14,6 +16,29 @@ from ._async_transport import AsyncTransport
 MEDIA_TYPE = "application/vnd.apache.arrow.stream"
 _MISSING = object()
 _END = object()
+
+
+class ArrowStreamExportable(Protocol):
+    """Tabular Arrow data: a PyArrow table, batch, or reader, a Polars DataFrame, etc."""
+
+    def __arrow_c_stream__(self, requested_schema: object | None = None) -> object: ...
+
+
+def _arrow_states(data):
+    """Serialize tabular Arrow data as one IPC stream; return its bytes and row count."""
+    try:
+        reader = pa.RecordBatchReader.from_stream(data)
+    except pa.ArrowInvalid as error:
+        raise ValueError(f"Arrow states must be tabular: {error}") from error
+    sink = io.BytesIO()
+    rows = 0
+    with pa.ipc.new_stream(sink, reader.schema) as writer:
+        for batch in reader:
+            writer.write_batch(batch)
+            rows += batch.num_rows
+    if not rows:
+        raise ValueError("Arrow states must have at least one row")
+    return sink.getvalue(), rows
 
 
 class _HTTPInput(io.RawIOBase):
@@ -127,13 +152,17 @@ class TypeSafeClient:
     def system_one(
         self, state: JSONContent = _MISSING,
         questions: Mapping[str, Question] | None = None, *,
-        states: list[JSONContent] = _MISSING, model: str | None = None,
+        states: list[JSONContent] | ArrowStreamExportable = _MISSING,
+        state_column: str | None = None, model: str | None = None,
         timeout: float | None = None, extra_headers: Mapping[str, str] | None = None,
     ) -> ArrowReader:
         if (state is _MISSING) == (states is _MISSING):
             raise ValueError("Supply exactly one of state or states")
-        if states is not _MISSING and (not isinstance(states, list) or not states):
-            raise ValueError("states must be a nonempty list")
+        arrow = hasattr(states, "__arrow_c_stream__")
+        if states is not _MISSING and not arrow and (not isinstance(states, list) or not states):
+            raise ValueError("states must be a nonempty list or tabular Arrow data")
+        if state_column is not None and not arrow:
+            raise ValueError("state_column requires Arrow states")
         if not questions:
             raise ValueError("questions must be a nonempty mapping")
         body = {
@@ -143,15 +172,26 @@ class TypeSafeClient:
                 for name, q in questions.items()
             },
         }
-        body["state" if states is _MISSING else "states"] = state if states is _MISSING else states
-        expected_rows = 1 if states is _MISSING else len(states)
         headers = {"Accept": MEDIA_TYPE}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         headers.update(extra_headers or {})
         kwargs = {} if timeout is None else {"timeout": timeout}
+        if arrow:
+            # Arrow states travel in a multipart form beside the JSON request fields.
+            data, expected_rows = _arrow_states(states)
+            if state_column is not None:
+                body["state_column"] = state_column
+            kwargs["files"] = {
+                "request": (None, json.dumps(body).encode(), "application/json"),
+                "states": ("states.arrows", data, MEDIA_TYPE),
+            }
+        else:
+            body["state" if states is _MISSING else "states"] = state if states is _MISSING else states
+            expected_rows = 1 if states is _MISSING else len(states)
+            kwargs["json"] = body
         request = self._http.build_request(
-            "POST", f"{self.base_url}/v1/systemone", json=body, headers=headers, **kwargs,
+            "POST", f"{self.base_url}/v1/systemone", headers=headers, **kwargs,
         )
         response = self._http.send(request, stream=True)
         try:
@@ -229,13 +269,14 @@ class AsyncTypeSafeClient:
     async def system_one(
         self, state: JSONContent = _MISSING,
         questions: Mapping[str, Question] | None = None, *,
-        states: list[JSONContent] = _MISSING, model: str | None = None,
+        states: list[JSONContent] | ArrowStreamExportable = _MISSING,
+        state_column: str | None = None, model: str | None = None,
         timeout: float | None = None, extra_headers: Mapping[str, str] | None = None,
     ) -> AsyncArrowReader:
         self._transport.bind_loop()
         opening = asyncio.create_task(asyncio.to_thread(
-            self._client.system_one, state, questions, states=states, model=model,
-            timeout=timeout, extra_headers=extra_headers,
+            self._client.system_one, state, questions, states=states, state_column=state_column,
+            model=model, timeout=timeout, extra_headers=extra_headers,
         ))
         try:
             return AsyncArrowReader(await asyncio.shield(opening))

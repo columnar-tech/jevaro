@@ -59,7 +59,8 @@ returns an `ArrowReader`. Supply exactly one of `state` and `states`.
 | Argument | Meaning |
 | --- | --- |
 | `state` | One string, object, or array |
-| `states` | A nonempty list of states |
+| `states` | A nonempty list of states, or [tabular Arrow data](#arrow-states) |
+| `state_column` | With Arrow states, the column whose values are the states |
 | `questions` | A nonempty mapping of question IDs to definitions |
 | `model` | Override the client's model |
 | `timeout` | Override the client's I/O timeout, in seconds |
@@ -67,6 +68,35 @@ returns an `ArrowReader`. Supply exactly one of `state` and `states`.
 
 An array in singular `state` is one evaluation. Use `states` to evaluate its
 elements separately.
+
+## Arrow states
+
+`states` also accepts tabular Arrow data: a PyArrow table, record batch, or
+reader, or any object with the Arrow PyCapsule stream interface
+(`__arrow_c_stream__`), such as a Polars DataFrame. The SDK sends it as an
+Arrow IPC stream.
+
+```python
+import pyarrow as pa
+from jevaro import Noul, TypeSafeClient
+
+tickets = pa.table({
+    "subject": ["Shoes", "Parcel"],
+    "body": ["Please refund the shoes.", "Where is my parcel?"],
+})
+with TypeSafeClient() as client:
+    with client.system_one(
+        states=tickets,
+        questions={"refund": Noul(instructions="Does `body` request a refund?")},
+    ) as reader:
+        answers = reader.read_all()
+```
+
+Each row becomes an object of its columns, as `tickets.to_pylist()` would
+produce. Pass `state_column="body"` to use that column's values as the states
+instead. Answer rows follow input rows, so they can be joined by position.
+See the [HTTP API](https://github.com/columnar-tech/jevaro/blob/main/docs/http-api.md#arrow-request)
+for how Arrow types become JSON.
 
 ## Client configuration
 

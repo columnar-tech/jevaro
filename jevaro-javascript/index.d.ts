@@ -1,4 +1,4 @@
-import type { AsyncRecordBatchStreamReader } from "apache-arrow";
+import type { AsyncRecordBatchStreamReader, Table } from "apache-arrow";
 import type { Questions, SystemOneRequest as OriginalRequest } from "@typesafe-ai/sdk";
 
 export { choice, noul, score } from "@typesafe-ai/sdk";
@@ -8,7 +8,12 @@ export type State = NonNullable<OriginalRequest["state"]>;
 export type SystemOneRequest<Q extends Questions = Questions> = {
   questions: Q;
   model?: string;
-} & ({ state: State; states?: never } | { states: State[]; state?: never });
+} & (
+  | { state: State; states?: never; stateColumn?: never }
+  | { states: State[]; state?: never; stateColumn?: never }
+  /** Each row is one state: an object of its columns, or the value in `stateColumn`. */
+  | { states: Table; stateColumn?: string; state?: never }
+);
 
 export interface TypeSafeClientConfig {
   apiKey?: string;

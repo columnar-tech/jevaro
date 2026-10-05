@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const { createRequire } = require("node:module");
 const vm = require("node:vm");
-const { tableFromArrays, tableToIPC, RecordBatchReader } = require("apache-arrow");
+const { tableFromArrays, tableFromIPC, tableToIPC, RecordBatchReader } = require("apache-arrow");
 const { TypeSafeClient, APIError, choice, noul, score } = require("jevaro");
 
 function response(values = [0.12345678901234567]) {
@@ -90,9 +90,42 @@ test("structured HTTP errors and wrong content type", async () => {
   await assert.rejects(json.systemOne({ state: "a", questions: { n: noul() } }), /Arrow IPC stream/);
 });
 
+test("an Arrow Table is sent as a multipart form with JSON request fields", async () => {
+  let sent;
+  const client = new TypeSafeClient({ apiKey: "test-key", defaultHeaders: { "Content-Type": "text/plain" }, fetch: async (url, options) => {
+    sent = { url, ...options };
+    return response([0.25, 0.75]);
+  } });
+  const table = tableFromArrays({ id: Int32Array.from([1, 2]), text: ["one", "two"] });
+  const reader = await client.systemOne({ states: table, stateColumn: "text", questions: { n: noul("Yes?") } });
+  assert.equal((await reader.readAll()).reduce((rows, batch) => rows + batch.numRows, 0), 2);
+  assert.ok(sent.body instanceof FormData);
+  assert.equal(sent.headers.has("content-type"), false);
+  assert.equal(sent.headers.get("authorization"), "Bearer test-key");
+  assert.deepEqual([...sent.body.keys()], ["request", "states"]);
+  const request = sent.body.get("request");
+  assert.equal(request.type, "application/json");
+  assert.deepEqual(JSON.parse(await request.text()), JSON.parse(JSON.stringify({
+    questions: { n: noul("Yes?") }, model: "jev-latest", state_column: "text",
+  })));
+  const states = sent.body.get("states");
+  assert.equal(states.type, "application/vnd.apache.arrow.stream");
+  assert.equal(states.name, "states.arrows");
+  const decoded = tableFromIPC(new Uint8Array(await states.arrayBuffer()));
+  assert.deepEqual(decoded.toArray().map(row => row.toJSON()), [{ id: 1, text: "one" }, { id: 2, text: "two" }]);
+});
+
+test("an Arrow Table sets the expected row count", async () => {
+  const client = new TypeSafeClient({ fetch: async () => response() });
+  const reader = await client.systemOne({ states: tableFromArrays({ text: ["one", "two"] }), questions: { n: noul() } });
+  await assert.rejects(reader.readAll(), /expected 2 rows, got 1/);
+});
+
 test("request validation", async () => {
   const client = new TypeSafeClient({ fetch: () => assert.fail("must not fetch") });
-  for (const input of [{}, { states: [] }, { state: "a", states: ["b"] }, { states: "bad" }]) {
+  for (const input of [{}, { states: [] }, { state: "a", states: ["b"] }, { states: "bad" },
+    { states: { text: ["a"] } }, { states: ["a"], stateColumn: "text" }, { state: "a", stateColumn: "text" },
+    { states: tableFromArrays({ text: [] }) }]) {
     await assert.rejects(client.systemOne({ ...input, questions: { n: noul() } }), TypeError);
   }
 });

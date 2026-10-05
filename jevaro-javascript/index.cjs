@@ -1,6 +1,6 @@
 "use strict";
 
-const { RecordBatchReader } = require("apache-arrow");
+const { RecordBatchReader, Table, tableToIPC } = require("apache-arrow");
 const { choice, noul, score } = require("@typesafe-ai/sdk");
 
 const MEDIA_TYPE = "application/vnd.apache.arrow.stream";
@@ -29,13 +29,16 @@ class TypeSafeClient {
     const singular = Object.hasOwn(request, "state");
     const plural = Object.hasOwn(request, "states");
     if (singular === plural) throw new TypeError("Supply exactly one of state or states");
-    if (plural && (!Array.isArray(request.states) || !request.states.length)) {
-      throw new TypeError("states must be a nonempty array");
+    const arrow = plural && request.states instanceof Table;
+    if (plural && !arrow && (!Array.isArray(request.states) || !request.states.length)) {
+      throw new TypeError("states must be a nonempty array or an apache-arrow Table");
     }
+    if (arrow && !request.states.numRows) throw new TypeError("Arrow states must have at least one row");
+    if (Object.hasOwn(request, "stateColumn") && !arrow) throw new TypeError("stateColumn requires Arrow states");
     if (!request.questions || !Object.keys(request.questions).length) {
       throw new TypeError("questions must be a nonempty object");
     }
-    const expectedRows = plural ? request.states.length : 1;
+    const expectedRows = arrow ? request.states.numRows : plural ? request.states.length : 1;
     const timeout = options.timeout ?? this.timeout;
     if (!Number.isFinite(timeout) || timeout <= 0) throw new TypeError("timeout must be positive milliseconds");
     const controller = new AbortController();
@@ -51,10 +54,21 @@ class TypeSafeClient {
       headers.set("Accept", MEDIA_TYPE);
       if (this.apiKey) headers.set("Authorization", `Bearer ${this.apiKey}`);
       new Headers(options.headers).forEach((value, key) => headers.set(key, value));
-      response = await this.fetch(`${this.baseURL}/v1/systemone`, {
-        method: "POST", headers, signal,
-        body: JSON.stringify({ ...request, model: request.model ?? this.defaultModel }),
-      });
+      let payload;
+      if (arrow) {
+        // Arrow states travel in a multipart form beside the JSON request fields.
+        // fetch sets the multipart Content-Type, including its boundary.
+        headers.delete("Content-Type");
+        const { states, stateColumn, ...fields } = request;
+        const json = { ...fields, model: fields.model ?? this.defaultModel };
+        if (stateColumn !== undefined) json.state_column = stateColumn;
+        payload = new FormData();
+        payload.append("request", new Blob([JSON.stringify(json)], { type: "application/json" }));
+        payload.append("states", new Blob([tableToIPC(states, "stream")], { type: MEDIA_TYPE }), "states.arrows");
+      } else {
+        payload = JSON.stringify({ ...request, model: request.model ?? this.defaultModel });
+      }
+      response = await this.fetch(`${this.baseURL}/v1/systemone`, { method: "POST", headers, signal, body: payload });
       if (!response.ok) {
         const text = await response.text();
         let body;
