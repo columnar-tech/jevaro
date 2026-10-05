@@ -53,9 +53,82 @@ To send states as Arrow, POST `multipart/form-data` with two parts:
 | `request` | `application/json` | `questions`, `model`, and optional `state_column` |
 | `states` | `application/vnd.apache.arrow.stream` | An Arrow IPC stream with one row per state |
 
-This follows the multipart example in Apache Arrow's
-[HTTP experiments](https://github.com/apache/arrow-experiments/tree/main/http/post_multipart).
-The response is the same Arrow stream as for a JSON request.
+The `request` part takes the same `questions` and `model` as a JSON request,
+and rejects `state` and `states`. A part may omit its Content-Type; `states`
+may also use `application/octet-stream`. Any other part is rejected. The
+response is the same Arrow stream as for a JSON request.
+
+### Rows become states
+
+Each row is one state. These examples use a table of two support tickets:
+
+| `id` | `subject` | `body` |
+| --- | --- | --- |
+| 101 | Shoes | Please refund the shoes. |
+| 102 | Parcel | Where is my parcel? |
+
+Without `state_column`, each state is an object of the row's columns, as
+PyArrow's `table.to_pylist()` would produce. The two states are:
+
+```json
+{"id": 101, "subject": "Shoes", "body": "Please refund the shoes."}
+{"id": 102, "subject": "Parcel", "body": "Where is my parcel?"}
+```
+
+Instructions can refer to a column by name, as in
+``"Does the customer's `body` ask for a refund?"``.
+
+With `"state_column": "body"`, that column's values are the states. The other
+columns are not sent:
+
+```json
+"Please refund the shoes."
+"Where is my parcel?"
+```
+
+To send some columns but not others, put them in a struct column and name it.
+If `ticket` is a struct column with `subject` and `body` fields,
+`"state_column": "ticket"` sends these states, and `id` stays out of them:
+
+```json
+{"subject": "Shoes", "body": "Please refund the shoes."}
+{"subject": "Parcel", "body": "Where is my parcel?"}
+```
+
+A state column can hold strings, structs, lists, maps, or `arrow.json`
+values. Each `arrow.json` value is parsed, so states can differ in shape from
+row to row. A state column cannot contain nulls. Answer rows follow input
+rows, so you can join answers to the input by position.
+
+### Send a table with curl
+
+Write the table as an Arrow IPC stream. With PyArrow:
+
+```python
+import pyarrow as pa
+
+tickets = pa.table({
+    "id": [101, 102],
+    "subject": ["Shoes", "Parcel"],
+    "body": ["Please refund the shoes.", "Where is my parcel?"],
+})
+with pa.ipc.new_stream("tickets.arrows", tickets.schema) as writer:
+    writer.write_table(tickets)
+```
+
+Save the request fields as `request.json`. This one sends each `body` as a
+state:
+
+```json
+{
+  "questions": {
+    "refund": {"type": "noul", "instructions": "Is a refund being requested?"}
+  },
+  "state_column": "body"
+}
+```
+
+Send both parts:
 
 ```sh
 curl --fail-with-body --no-buffer http://127.0.0.1:8000/v1/systemone \
@@ -64,15 +137,10 @@ curl --fail-with-body --no-buffer http://127.0.0.1:8000/v1/systemone \
   --output http-results.arrows
 ```
 
-The `request` part takes the same `questions` and `model` as a JSON request,
-and rejects `state` and `states`. A part may omit its Content-Type; `states`
-may also use `application/octet-stream`. Any other part is rejected.
+To send whole rows instead, remove `state_column` from `request.json` and
+refer to the columns in the instructions.
 
-By default, each row becomes an object of its columns, as PyArrow's
-`table.to_pylist()` would produce. Instructions can refer to a column by name,
-such as `` `body` ``. With `"state_column": "body"`, that column's values are
-the states and other columns are ignored. A state column must hold strings,
-structs, lists, maps, or `arrow.json` values, with no nulls.
+### Types
 
 | Arrow type | JSON value |
 | --- | --- |
@@ -89,6 +157,8 @@ structs, lists, maps, or `arrow.json` values, with no nulls.
 A null inside a row becomes `null`. Other types, including binary, list views,
 durations, and unions, are rejected. Send the IPC stream format; the IPC file
 format is rejected.
+
+### Validation and memory
 
 The server checks the API key before reading the body. It then reads the whole
 upload and converts every row once, so a bad row causes a 422 before streaming

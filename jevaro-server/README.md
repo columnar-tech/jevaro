@@ -52,7 +52,17 @@ authentication in front of a shared server.
 for the whole batch. Use `state` for a single evaluation.
 
 To send the states as Arrow instead, POST `multipart/form-data` with a JSON
-`request` part and an Arrow IPC `states` part. Each row becomes one state.
+`request` part and an Arrow IPC `states` part. Each row becomes one state:
+an object of the row's columns, or the value in `state_column`. For a table
+with `id` and `body` columns:
+
+| `request` part | First state |
+| --- | --- |
+| `{"questions": {...}}` | `{"id": 101, "body": "Please refund the shoes."}` |
+| `{"questions": {...}, "state_column": "body"}` | `"Please refund the shoes."` |
+
+The [HTTP API](https://github.com/columnar-tech/jevaro/blob/main/docs/http-api.md#arrow-request)
+has a curl example and shows how Arrow types become JSON.
 
 After validating the request, the server sends the schema and an empty batch
 before starting upstream calls. Each later batch holds the next answer row

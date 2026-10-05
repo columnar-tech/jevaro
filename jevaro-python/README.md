@@ -73,29 +73,85 @@ elements separately.
 
 `states` also accepts tabular Arrow data: a PyArrow table, record batch, or
 reader, or any object with the Arrow PyCapsule stream interface
-(`__arrow_c_stream__`), such as a Polars DataFrame. The SDK sends it as an
-Arrow IPC stream.
+(`__arrow_c_stream__`), such as a Polars DataFrame. The SDK sends it to
+Jevaro as an Arrow IPC stream. Each row becomes one state.
+
+Without `state_column`, each state is an object of the row's columns, as
+`tickets.to_pylist()` would produce. With `state_column`, each state is that
+column's value, and the other columns are not sent:
 
 ```python
 import pyarrow as pa
 from jevaro import Noul, TypeSafeClient
 
 tickets = pa.table({
+    "id": [101, 102],
     "subject": ["Shoes", "Parcel"],
     "body": ["Please refund the shoes.", "Where is my parcel?"],
 })
+
 with TypeSafeClient() as client:
+    # First state: {"id": 101, "subject": "Shoes", "body": "Please refund the shoes."}
     with client.system_one(
         states=tickets,
-        questions={"refund": Noul(instructions="Does `body` request a refund?")},
+        questions={"refund": Noul(instructions="Does the customer's `body` ask for a refund?")},
+    ) as reader:
+        rows = reader.read_all()
+
+    # First state: "Please refund the shoes."
+    with client.system_one(
+        states=tickets, state_column="body",
+        questions={"refund": Noul(instructions="Is a refund being requested?")},
+    ) as reader:
+        bodies = reader.read_all()
+```
+
+To send some columns but not others, put them in a struct column and name it
+as the state column. Here `id` stays in the table but out of the states:
+
+```python
+tickets = pa.table({
+    "id": tickets["id"],
+    "ticket": tickets.select(["subject", "body"]).to_struct_array(),
+})
+with TypeSafeClient() as client:
+    # First state: {"subject": "Shoes", "body": "Please refund the shoes."}
+    with client.system_one(
+        states=tickets, state_column="ticket",
+        questions={"refund": Noul(instructions="Does the ticket's `body` ask for a refund?")},
     ) as reader:
         answers = reader.read_all()
 ```
 
-Each row becomes an object of its columns, as `tickets.to_pylist()` would
-produce. Pass `state_column="body"` to use that column's values as the states
-instead. Answer rows follow input rows, so they can be joined by position.
-See the [HTTP API](https://github.com/columnar-tech/jevaro/blob/main/docs/http-api.md#arrow-request)
+Answer rows follow input rows, so you can add the answers to the input table:
+
+```python
+results = tickets
+for field in answers.schema:
+    results = results.append_column(field, answers[field.name])
+```
+
+A Polars DataFrame works the same way:
+
+```python
+import polars as pl
+
+messages = pl.DataFrame({"id": [101, 102], "body": ["Please refund the shoes.", "Where is my parcel?"]})
+with TypeSafeClient() as client:
+    with client.system_one(
+        states=messages, state_column="body",
+        questions={"refund": Noul(instructions="Is a refund being requested?")},
+    ) as reader:
+        answers = reader.read_all()
+```
+
+`pl.from_arrow(answers)` converts the answers to Polars. Polars warns that the
+`jevaro.*` extension types are not registered; set
+`POLARS_UNKNOWN_EXTENSION_TYPE_BEHAVIOR=load_as_storage` to load their storage
+types without the warning.
+
+A state column can also hold lists, maps, or `arrow.json` values. See the
+[HTTP API](https://github.com/columnar-tech/jevaro/blob/main/docs/http-api.md#arrow-request)
 for how Arrow types become JSON.
 
 ## Client configuration

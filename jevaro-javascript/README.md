@@ -92,34 +92,85 @@ Plain question objects work too. See the bundled
 Supply exactly one of `state` and `states`. An array in singular `state` is
 one evaluation. Use `states` to evaluate its elements separately.
 
+The optional second argument accepts `headers`, `timeout` in milliseconds,
+and an `AbortSignal` as `signal`. A signal can cancel after the schema arrives.
+
 ## Arrow states
 
-`states` also accepts an Apache Arrow `Table`. The SDK sends it as an Arrow
-IPC stream.
+`states` also accepts an Apache Arrow `Table`. The SDK sends it to Jevaro as
+an Arrow IPC stream. Each row becomes one state.
+
+Without `stateColumn`, each state is an object of the row's columns. With
+`stateColumn`, each state is that column's value, and the other columns are
+not sent:
 
 ```javascript
 import { tableFromArrays } from "apache-arrow";
+import { TypeSafeClient, noul } from "jevaro";
 
+const client = new TypeSafeClient();
 const tickets = tableFromArrays({
+  id: Int32Array.from([101, 102]),
   subject: ["Shoes", "Parcel"],
   body: ["Please refund the shoes.", "Where is my parcel?"],
 });
-const reader = await client.systemOne({
+
+// First state: {"id": 101, "subject": "Shoes", "body": "Please refund the shoes."}
+const rows = await client.systemOne({
   states: tickets,
-  questions: { refund: noul("Does `body` request a refund?") },
+  questions: { refund: noul("Does the customer's `body` ask for a refund?") },
 });
+for await (const batch of rows) {
+  for (const row of batch) console.log(row.refund);
+}
+
+// First state: "Please refund the shoes."
+const bodies = await client.systemOne({
+  states: tickets,
+  stateColumn: "body",
+  questions: { refund: noul("Is a refund being requested?") },
+});
+for await (const batch of bodies) {
+  for (const row of batch) console.log(row.refund);
+}
 ```
 
-Each row becomes an object of its columns. Set `stateColumn: "body"` to use
-that column's values as the states instead. Answer rows follow input rows.
-Create the `Table` with `apache-arrow` 21.2.0, the version this SDK uses. Its
-CommonJS and ES module builds both work; a `Table` from another version is
-rejected with a `TypeError`. See the
+Use typed arrays such as `Int32Array` for integer columns. A plain array of
+numbers becomes a float column, so `101` would be sent as `101.0`.
+
+To send some columns but not others, put them in a struct column and name it
+as the state column. Here `id` stays in the table but out of the states.
+Answer rows follow input rows, so the row index joins each answer to its
+ticket:
+
+```javascript
+const tickets = tableFromArrays({
+  id: Int32Array.from([101, 102]),
+  ticket: [
+    { subject: "Shoes", body: "Please refund the shoes." },
+    { subject: "Parcel", body: "Where is my parcel?" },
+  ],
+});
+
+// First state: {"subject": "Shoes", "body": "Please refund the shoes."}
+const reader = await client.systemOne({
+  states: tickets,
+  stateColumn: "ticket",
+  questions: { refund: noul("Does the ticket's `body` ask for a refund?") },
+});
+let index = 0;
+for await (const batch of reader) {
+  for (const row of batch) console.log(tickets.get(index++).id, row.refund);
+}
+```
+
+A state column can also hold lists, maps, or `arrow.json` values. See the
 [HTTP API](https://github.com/columnar-tech/jevaro/blob/main/docs/http-api.md#arrow-request)
 for how Arrow types become JSON.
 
-The optional second argument accepts `headers`, `timeout` in milliseconds,
-and an `AbortSignal` as `signal`. A signal can cancel after the schema arrives.
+Create the `Table` with `apache-arrow` 21.2.0, the version this SDK uses. Its
+CommonJS and ES module builds both work; a `Table` from another version is
+rejected with a `TypeError`.
 
 ## Client configuration
 
