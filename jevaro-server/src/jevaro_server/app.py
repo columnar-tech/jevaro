@@ -155,7 +155,7 @@ def create_app(*, client_factory=AsyncTypeSafeClient, transport=None, concurrenc
             app.state.http_client = http_client
             yield
 
-    app = FastAPI(title="Jevaro", version="0.3.0", lifespan=lifespan)
+    app = FastAPI(title="Jevaro", version="0.3.1", lifespan=lifespan)
 
     def answer_schema(questions):
         try:

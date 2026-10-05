@@ -139,7 +139,7 @@ Download `distributions` from a successful CI run to `dist`, then publish the
 tested JavaScript archive:
 
 ```sh
-npm publish ./dist/jevaro-0.3.0.tgz --access public --registry=https://registry.npmjs.org
+npm publish ./dist/jevaro-0.3.1.tgz --access public --registry=https://registry.npmjs.org
 ```
 
 Verify fresh installs from both production registries:
@@ -152,7 +152,7 @@ python scripts/test_dist.py dist \
 
 The npm check uses a new cache and installs `jevaro` by version from the
 registry. Keep the original archive and compare its integrity hash with
-`npm view jevaro@0.3.0 dist.integrity`.
+`npm view jevaro@0.3.1 dist.integrity`.
 
 For later releases, the manual [npm workflow](../.github/workflows/npm.yml)
 builds and tests the packages, then uploads the same JavaScript archive.
@@ -178,7 +178,7 @@ The workflow uses OIDC; it needs no npm token. A published version cannot be
 replaced. If an upload fails, check registry state before retrying.
 
 npm may accept an upload before the version is available. Wait until
-`npm view jevaro@0.3.0 version` succeeds before verifying fresh installs.
+`npm view jevaro@0.3.1 version` succeeds before verifying fresh installs.
 
 ## Change the version
 
