@@ -11,8 +11,9 @@ It converts the JSON answers into Arrow IPC. The schema arrives first,
 followed by answers in input order: one row per state and one column per
 question.
 
-Arrow extension types preserve Choice, Noul, and Score answers, with shared
-labels and legends stored once in the schema. See the
+Arrow extension types preserve Choice, Noul, Score, and Box answers, with
+shared labels and legends stored once in the schema. States and questions can
+include [images](#images-and-box-questions). See the
 [quickstart](https://github.com/columnar-tech/jevaro/blob/main/docs/quickstart.md)
 for an example using both SDKs.
 
@@ -77,6 +78,38 @@ to pass the stream without buffering.
 See the [HTTP API](https://github.com/columnar-tech/jevaro/blob/main/docs/http-api.md)
 and [Arrow schema](https://github.com/columnar-tech/jevaro/blob/main/docs/arrow-schema.md)
 for the request and result formats.
+
+## Images and Box questions
+
+Jev 1.14 adds TypeSafe's [dreamer-ready](https://docs.typesafe.ai/images)
+features: images in states, instructions, and criteria, and Box questions
+that find where something is in an image. Send images in any of three ways:
+
+| Request | Images |
+| --- | --- |
+| JSON | Base64 in `assets`, as TypeSafe accepts them |
+| `multipart/form-data` | File parts that `assets` names |
+| Arrow states | Binary values, one image per value |
+
+A Box question looks like this, and needs `"model": "jev-preview"` or
+`"jev-1.14.0"`:
+
+```json
+{"mug": {"type": "box", "instructions": "the coffee mug in `photo`"}}
+```
+
+Its answer row is
+`{"box": {"top": 0.25, "bottom": 0.82, "left": 0.44, "right": 0.84}, "confidence": 0.92}`.
+With `"box_format": "geoarrow"`, the edges are a `geoarrow.box`.
+
+Each upstream call carries only the images that its state and the questions
+refer to. Requests with images or Box questions need the
+`TypeSafe-Danger-Zone-Images: true` header, and can't use `rows_per_call`.
+
+Jevaro forwards every `TypeSafe-Danger-Zone-*` request header to TypeSafe
+with each upstream call, including `TypeSafe-Danger-Zone-Long-Context: true`.
+See the [HTTP API](https://github.com/columnar-tech/jevaro/blob/main/docs/http-api.md#images-and-box-questions)
+for worked examples and the checks Jevaro makes before streaming.
 
 ## Pack states into fewer calls
 

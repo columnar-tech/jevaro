@@ -1,7 +1,8 @@
 # HTTP API
 
 Jevaro accepts TypeSafe System One questions and returns an Arrow IPC stream.
-Send the states as JSON, or as an [Arrow IPC stream](#arrow-request).
+Send the states as JSON, or as an [Arrow IPC stream](#arrow-request). States
+and questions can include [images](#images-and-box-questions).
 The local default endpoint is `POST http://127.0.0.1:8000/v1/systemone`.
 
 ## Request
@@ -28,6 +29,8 @@ Send JSON with `Content-Type: application/json`:
 | `questions` | A nonempty map of string IDs to question definitions |
 | `model` | Nonempty string; defaults to `jev-latest` |
 | `rows_per_call` | Integer from 1 to 256; defaults to 1. Above 1, [packs states](#pack-states-into-fewer-calls) into fewer upstream calls |
+| `assets` | Map of references to [images](#send-images-as-json), as TypeSafe accepts them |
+| `box_format` | `typesafe` (default) or `geoarrow`: how [Box answers](arrow-schema.md#box) store their edges |
 
 Supply exactly one of `state` and `states`. `state: ["a", "b"]` is one
 evaluation; `states: ["a", "b"]` is two. An individual state cannot be a
@@ -40,6 +43,7 @@ Questions use the [TypeSafe definitions](https://docs.typesafe.ai/api):
 | `choice` | Map of 1–255 labels to descriptions; a description may be null |
 | `score` | Ordered array of 2–10 level descriptions |
 | `noul` | Optional object describing `true` and `false` outcomes |
+| `box` | None; a [Box question](#box-questions) has only `instructions` |
 
 Instructions and descriptions can use strings, objects, or arrays. The proxy
 accepts omitted or null instructions, as the SDK question helpers do.
@@ -51,13 +55,14 @@ To send states as Arrow, POST `multipart/form-data` with two parts:
 
 | Part | Content-Type | Contents |
 | --- | --- | --- |
-| `request` | `application/json` | `questions`, `model`, and optional `state_column` and `rows_per_call` |
+| `request` | `application/json` | `questions`, `model`, and optional `state_column`, `rows_per_call`, `assets`, and `box_format` |
 | `states` | `application/vnd.apache.arrow.stream` | An Arrow IPC stream with one row per state |
 
-The `request` part takes the same `questions` and `model` as a JSON request,
-and rejects `state` and `states`. A part may omit its Content-Type; `states`
-may also use `application/octet-stream`. Any other part is rejected. The
-response is the same Arrow stream as for a JSON request.
+The `request` part takes the same fields as a JSON request, plus
+`state_column`. With a `states` part, it rejects `state` and `states`. A part
+may omit its Content-Type; `states` may also use `application/octet-stream`.
+Any other part must be an [image](#send-images-as-file-parts) that `assets`
+names. The response is the same Arrow stream as for a JSON request.
 
 ### Rows become states
 
@@ -96,9 +101,10 @@ If `ticket` is a struct column with `subject` and `body` fields,
 {"subject": "Parcel", "body": "Where is my parcel?"}
 ```
 
-A state column can hold strings, structs, lists, maps, or `arrow.json`
-values. Each `arrow.json` value is parsed, so states can differ in shape from
-row to row. A state column cannot contain nulls. Answer rows follow input
+A state column can hold strings, images, structs, lists, maps, or
+`arrow.json` values. Each `arrow.json` value is parsed, so states can differ
+in shape from row to row. A state column cannot contain nulls. A binary
+value is an [image](#send-images-as-arrow-binary-values). Answer rows follow input
 rows, so you can join answers to the input by position.
 
 ### Send a table with curl
@@ -153,10 +159,11 @@ refer to the columns in the instructions.
 | Map with string keys | Object; duplicate keys are rejected |
 | Dictionary | Its decoded value |
 | `arrow.json` extension | The parsed JSON value |
+| Binary, large binary, binary view | An [image](#send-images-as-arrow-binary-values), by its reference |
 | Null | `null` |
 
-A null inside a row becomes `null`. Other types, including binary, list views,
-durations, and unions, are rejected. Send the IPC stream format; the IPC file
+A null inside a row becomes `null`. Other types, including fixed-size binary,
+list views, durations, and unions, are rejected. Send the IPC stream format; the IPC file
 format is rejected.
 
 ### Validation and memory
@@ -165,6 +172,208 @@ The server checks the API key before reading the body. It then reads the whole
 upload and converts every row once, so a bad row causes a 422 before streaming
 starts. The upload stays in memory as Arrow data. Rows are converted again,
 1,024 at a time, as upstream calls start.
+
+## Images and Box questions
+
+TypeSafe calls images and Box questions
+[dreamer-ready](https://docs.typesafe.ai/images): fit for prototypes, not yet
+for production. To use them, send the `TypeSafe-Danger-Zone-Images: true`
+header. Jevaro sends it to TypeSafe with each upstream call, and rejects a
+request with images or Box questions that lacks it.
+
+### Box questions
+
+A Box question finds one thing in an image. It has only `instructions`:
+
+```json
+{"mug": {"type": "box", "instructions": "the coffee mug in `photo`"}}
+```
+
+Box needs Jev 1.14: send `"model": "jev-preview"` or `"jev-1.14.0"`.
+`jev-latest` still names Jev 1.13, and TypeSafe rejects a Box question for it.
+
+Each answer row holds the box's four edges, as fractions of the image's height
+(`top`, `bottom`) and width (`left`, `right`), and a confidence that may be
+null:
+
+```json
+{"box": {"top": 0.25, "bottom": 0.82, "left": 0.44, "right": 0.84}, "confidence": 0.92}
+```
+
+With `"box_format": "geoarrow"`, the edges are a `geoarrow.box` instead:
+
+```json
+{"box": {"xmin": 0.44, "ymin": 0.25, "xmax": 0.84, "ymax": 0.82}, "confidence": 0.92}
+```
+
+See the [Arrow schema](arrow-schema.md#box) for both layouts.
+
+### Send images as JSON
+
+`assets` maps each image's reference to the image, as in
+[TypeSafe's API](https://docs.typesafe.ai/images#sending-images-in-a-request).
+Write a reference wherever its image belongs: in a state, in instructions,
+or in criteria. This request finds the mug in two photos and compares each
+with a picture of a particular mug:
+
+```json
+{
+  "model": "jev-preview",
+  "states": [{"id": 1, "photo": "<kitchen>"}, {"id": 2, "photo": "<office>"}],
+  "assets": {
+    "<kitchen>": {"type": "image", "format": "jpg", "data_base64": "/9j/4AAQSkZJRg..."},
+    "<office>": {"type": "image", "format": "png", "data_base64": "iVBORw0KGgo..."},
+    "<my-mug>": {"type": "image", "format": "jpg", "data_base64": "/9j/4AAQSkZJRg..."}
+  },
+  "questions": {
+    "mug": {"type": "box", "instructions": "the coffee mug in `photo`"},
+    "mine": {"type": "noul", "instructions": "Is the mug in `photo` this one: <my-mug>?"}
+  }
+}
+```
+
+Each upstream call sends the images that its state and the questions refer to:
+
+| Row | Upstream `state` | Images sent |
+| --- | --- | --- |
+| 0 | `{"id": 1, "photo": "<kitchen>"}` | `<kitchen>`, `<my-mug>` |
+| 1 | `{"id": 2, "photo": "<office>"}` | `<office>`, `<my-mug>` |
+
+Save the request as `request.json` and send it:
+
+```sh
+curl --fail-with-body --no-buffer http://127.0.0.1:8000/v1/systemone \
+  -H 'Content-Type: application/json' \
+  -H 'TypeSafe-Danger-Zone-Images: true' \
+  --data @request.json --output boxes.arrows
+```
+
+An asset has `"type": "image"` or no `type`, and either:
+
+- `data_base64`: the file, base64-encoded with the standard alphabet and `=`
+  padding, without whitespace or a `data:` prefix, and `format`: `png`, `jpg`,
+  or `jpeg`; or
+- `part`: in a multipart request, the name of the
+  [file part](#send-images-as-file-parts) that holds the image.
+
+### Send images as file parts
+
+Base64 makes each image about a third larger. To send image files as they are,
+POST `multipart/form-data`: the JSON request in a `request` part, and each
+image in its own part, named by its asset's `part`. These are the same
+requests as above:
+
+```sh
+curl --fail-with-body --no-buffer http://127.0.0.1:8000/v1/systemone \
+  -H 'TypeSafe-Danger-Zone-Images: true' \
+  -F 'request={
+    "model": "jev-preview",
+    "states": [{"id": 1, "photo": "<kitchen>"}, {"id": 2, "photo": "<office>"}],
+    "assets": {"<kitchen>": {"part": "kitchen"}, "<office>": {"part": "office"}, "<my-mug>": {"part": "my-mug"}},
+    "questions": {
+      "mug": {"type": "box", "instructions": "the coffee mug in `photo`"},
+      "mine": {"type": "noul", "instructions": "Is the mug in `photo` this one: <my-mug>?"}
+    }
+  };type=application/json' \
+  -F 'kitchen=@kitchen.jpg;type=image/jpeg' \
+  -F 'office=@office.png;type=image/png' \
+  -F 'my-mug=@my-mug.jpg;type=image/jpeg' \
+  --output boxes.arrows
+```
+
+An image part has Content-Type `image/png`, `image/jpeg`, `image/jpg`, or
+`application/octet-stream`, or none. Each part belongs to exactly one asset.
+The `request` part holds `state` or `states`, or the request can send
+[Arrow states](#arrow-request) in a `states` part.
+
+### Send images as Arrow binary values
+
+In [Arrow states](#arrow-request), each binary value is an image file. Jevaro
+writes a new reference in its place and sends the image with that row's
+upstream call. Make a table of two photos:
+
+```python
+from pathlib import Path
+import pyarrow as pa
+
+photos = pa.table({
+    "id": [1, 2],
+    "photo": [Path("kitchen.jpg").read_bytes(), Path("office.png").read_bytes()],
+})
+with pa.ipc.new_stream("photos.arrows", photos.schema) as writer:
+    writer.write_table(photos)
+```
+
+Save the request fields as `request.json`:
+
+```json
+{
+  "model": "jev-preview",
+  "questions": {"mug": {"type": "box", "instructions": "the coffee mug in `photo`"}}
+}
+```
+
+Send both parts:
+
+```sh
+curl --fail-with-body --no-buffer http://127.0.0.1:8000/v1/systemone \
+  -H 'TypeSafe-Danger-Zone-Images: true' \
+  -F 'request=<request.json;type=application/json' \
+  -F 'states=@photos.arrows;type=application/vnd.apache.arrow.stream' \
+  --output boxes.arrows
+```
+
+The two states are:
+
+```json
+{"id": 1, "photo": "<image:5d1c2a7e0b9f4c3d8e6a000000000000>"}
+{"id": 2, "photo": "<image:5d1c2a7e0b9f4c3d8e6a000000000001>"}
+```
+
+Each upstream call sends one image, under the reference in its state. Every
+request uses a new random prefix. With `"state_column": "photo"`, the state is
+the image alone, so write instructions such as `"the coffee mug"`.
+
+Binary values work anywhere in a row. A list of binary values becomes an array
+of references, and a binary field of a struct becomes a reference in its
+object. A null stays `null`. A request can also name images for its questions
+in `assets` and send them as file parts beside the `states` part.
+
+### Which images each call sends
+
+Images that the questions refer to go with every upstream call. Images that a
+state refers to go only with that state's call. Jevaro finds references the
+way TypeSafe does: a string that is exactly a reference, then references
+inside longer strings, from left to right. Object keys, such as Choice
+options, are never references. Use references that can't appear in your text
+by accident, such as `<image:...>` or a UUID.
+
+Every asset must be referenced somewhere, as TypeSafe requires. Jevaro doesn't
+compress the bodies of upstream calls with images, since image files are
+already compressed.
+
+### Checks before streaming
+
+Jevaro returns 422 before any upstream call for:
+
+- Images or Box questions without the `TypeSafe-Danger-Zone-Images: true` header
+- Images or Box questions with `rows_per_call` above 1; packing would send
+  each row's images again with every question
+- An asset that no state, instructions, or criteria refer to
+- An asset without `part` or `data_base64`, `data_base64` without `format`,
+  invalid base64, or an empty image
+- A part that an asset names but the request lacks, a part that two assets
+  name, a part that no asset names, or an image part with another Content-Type
+- A reference that is empty, only whitespace, or over 1,024 bytes, or the
+  references of one call totaling over 65,536 bytes
+- An empty binary value
+
+Jevaro passes image files to TypeSafe unchanged. TypeSafe checks their
+contents: PNG or JPEG, at least 256 and at most 1,568 pixels on each side,
+and its [other limits](https://docs.typesafe.ai/images#limits), which may
+change. An image that TypeSafe rejects [ends the stream](#errors) at its row,
+so [prepare images](https://docs.typesafe.ai/images#preparing-images) before
+sending them.
 
 ## Pack states into fewer calls
 
@@ -241,8 +450,11 @@ TypeSafe returns 429, Jevaro lowers the number of calls in flight.
     tickets with 6 questions. Under a token rate limit, they're also slower
     than one state per call once the burst allowance is spent.
 
-**Conflicts.** Before any upstream call, Jevaro rejects two kinds of request
+**Conflicts.** Before any upstream call, Jevaro rejects three kinds of request
 with 422:
+
+- **Images or Box questions.** Packing would send each row's images again
+  with every question, so send them one state per call.
 
 - **A `state` field in instructions.** For example, a question's instructions
   are `{"state": "CA", "question": "Is this on the west coast?"}`. Rename the
@@ -260,6 +472,32 @@ with 422:
   the instructions field. Rename that field.
 
 The error names the question and, for a shared name, the row.
+
+## Danger-zone headers
+
+TypeSafe turns on experimental features with `TypeSafe-Danger-Zone-*`
+request headers. Jevaro sends every such header that it receives, unchanged,
+with each upstream call for that request. Apart from the
+[API key](#credentials), it sends no other request headers upstream.
+
+| Header | At TypeSafe |
+| --- | --- |
+| `TypeSafe-Danger-Zone-Images: true` | Turns on [images and Box questions](#images-and-box-questions) |
+| `TypeSafe-Danger-Zone-Long-Context: true` | Raises the [context length](https://docs.typesafe.ai/models#long-context) to 262k tokens per request and per question |
+
+This request evaluates two long contracts with long context on:
+
+```sh
+curl --fail-with-body --no-buffer http://127.0.0.1:8000/v1/systemone \
+  -H 'Content-Type: application/json' \
+  -H 'TypeSafe-Danger-Zone-Long-Context: true' \
+  --data '{"states":["<first contract>","<second contract>"],"questions":{"termination":{"type":"noul","instructions":"Can either party end the agreement early?"}}}' \
+  --output contracts.arrows
+```
+
+TypeSafe says long context is slower and less accurate, so send the header
+only with requests that need it. With `rows_per_call`, Jevaro still keeps each
+packed call to about 48,000 estimated tokens.
 
 ## Credentials
 

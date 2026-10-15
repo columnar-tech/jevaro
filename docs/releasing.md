@@ -5,7 +5,7 @@ separately. All three started at `0.1.0`.
 
 ## Build
 
-From the repository root, in an environment with Python 3.11+ and Node.js 20.3+:
+From the repository root, in an environment with Python 3.11+ and Node.js 22+:
 
 ```sh
 python -m pip install -r requirements-build.txt
@@ -40,7 +40,7 @@ no TypeSafe key or paid calls are needed. Temporary files are removed afterward.
 ## CI
 
 [GitHub Actions](../.github/workflows/ci.yml) builds the archives once, then
-tests those same files on Python 3.11 and 3.14 with Node 20.3.0 and 24. Checks
+tests those same files on Python 3.11 and 3.14 with Node 22.0.0 and 24. Checks
 run on pushes, pull requests, and manual runs. Download the `distributions`
 artifact from a successful run to get the five tested release files.
 

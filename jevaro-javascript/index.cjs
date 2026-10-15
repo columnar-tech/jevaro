@@ -1,10 +1,41 @@
 "use strict";
 
 const arrow = require("apache-arrow");
-const { choice, noul, score } = require("@typesafe-ai/sdk");
+const { box, choice, Image, image, noul, score, withAssets } = require("@typesafe-ai/sdk");
 
 const { RecordBatchReader, Table } = arrow;
 const MEDIA_TYPE = "application/vnd.apache.arrow.stream";
+// The TypeSafe SDK marks its images and `withAssets` text with these symbols, so that
+// objects from its ES module and CommonJS builds, or another copy, are recognized.
+const IMAGE = Symbol.for("@typesafe-ai/sdk/image");
+const TEXT_WITH_ASSETS = Symbol.for("@typesafe-ai/sdk/text-with-assets");
+// Labels for image parts; the API detects each image's format from its bytes.
+const IMAGE_TYPES = [["image/png", [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]], ["image/jpeg", [0xff, 0xd8, 0xff]]];
+
+const isImage = value => typeof value === "object" && value !== null && (IMAGE in value || value instanceof Image);
+
+// JSON for the request, with each image written as its reference. `found` collects the
+// images, by reference, from the request's content and from `withAssets` text.
+function encodeRequest(json, found) {
+  return JSON.stringify(json, function (key, value) {
+    const original = this[key];
+    if (isImage(original)) found.set(String(original), original);
+    else if (typeof original === "object" && original !== null && TEXT_WITH_ASSETS in original) {
+      for (const asset of original.assets) found.set(String(asset), asset);
+    }
+    return value;
+  });
+}
+
+// An image's file bytes as a Blob labeled with its format; a Blob's own type is ignored.
+async function imageBlob(data) {
+  const blob = data instanceof Blob;
+  const head = blob ? new Uint8Array(await data.slice(0, 8).arrayBuffer()) : data.subarray(0, 8);
+  const type = IMAGE_TYPES.find(([, signature]) => signature.every((byte, i) => head[i] === byte))?.[0];
+  // Blob copies byte arrays, but can't read one backed by a SharedArrayBuffer.
+  const bytes = blob || data.buffer instanceof ArrayBuffer ? data : data.slice();
+  return new Blob([bytes], { type: type ?? "application/octet-stream" });
+}
 
 // apache-arrow ships separate CommonJS and ES module builds. Each build's
 // `instanceof Table` accepts the other's tables, but its writer then drops
@@ -52,6 +83,15 @@ class TypeSafeClient {
     if (request.rowsPerCall !== undefined && (!Number.isInteger(request.rowsPerCall) || request.rowsPerCall < 1)) {
       throw new TypeError("rowsPerCall must be a positive integer");
     }
+    if (request.boxFormat !== undefined && !["typesafe", "geoarrow"].includes(request.boxFormat)) {
+      throw new TypeError('boxFormat must be "typesafe" or "geoarrow"');
+    }
+    const images = new Map();
+    for (const [name, asset] of Object.entries(request.assets ?? {})) {
+      if (!name.trim()) throw new TypeError("Asset names must be nonempty strings");
+      if (!isImage(asset)) throw new TypeError(`Asset "${name}" must be an image from image() or Image.fromBase64()`);
+      images.set(name, asset);
+    }
     const expectedRows = arrow ? request.states.numRows : plural ? request.states.length : 1;
     const timeout = options.timeout ?? this.timeout;
     if (!Number.isFinite(timeout) || timeout <= 0) throw new TypeError("timeout must be positive milliseconds");
@@ -68,23 +108,33 @@ class TypeSafeClient {
       headers.set("Accept", MEDIA_TYPE);
       if (this.apiKey) headers.set("Authorization", `Bearer ${this.apiKey}`);
       new Headers(options.headers).forEach((value, key) => headers.set(key, value));
-      let payload;
-      if (arrow) {
-        // Arrow states travel in a multipart form beside the JSON request fields.
+      const { states, stateColumn, rowsPerCall, boxFormat, assets, ...fields } = request;
+      const json = { ...fields, model: fields.model ?? this.defaultModel };
+      if (!arrow && plural) json.states = states;
+      if (stateColumn !== undefined) json.state_column = stateColumn;
+      if (rowsPerCall !== undefined) json.rows_per_call = rowsPerCall;
+      if (boxFormat !== undefined) json.box_format = boxFormat;
+      let payload = encodeRequest(json, images);
+      if (arrow || images.size) {
+        // Arrow states and images travel in a multipart form beside the JSON request fields.
         // fetch sets the multipart Content-Type, including its boundary.
         headers.delete("Content-Type");
-        const { states, stateColumn, rowsPerCall, ...fields } = request;
-        const json = { ...fields, model: fields.model ?? this.defaultModel };
-        if (stateColumn !== undefined) json.state_column = stateColumn;
-        if (rowsPerCall !== undefined) json.rows_per_call = rowsPerCall;
-        payload = new FormData();
-        payload.append("request", new Blob([JSON.stringify(json)], { type: "application/json" }));
-        payload.append("states", new Blob([await writeStates(states)], { type: MEDIA_TYPE }), "states.arrows");
-      } else {
-        const { rowsPerCall, ...fields } = request;
-        const json = { ...fields, model: fields.model ?? this.defaultModel };
-        if (rowsPerCall !== undefined) json.rows_per_call = rowsPerCall;
-        payload = JSON.stringify(json);
+        const parts = [];
+        if (images.size) {
+          // Each image is a file part that the request's assets name, as TypeSafe accepts them.
+          json.assets = {};
+          for (const [name, asset] of images) {
+            const part = `asset-${parts.length}`;
+            json.assets[name] = { type: "image", part };
+            parts.push([part, await imageBlob(asset.data)]);
+          }
+          payload = encodeRequest(json, new Map());
+        }
+        const form = new FormData();
+        form.append("request", new Blob([payload], { type: "application/json" }));
+        if (arrow) form.append("states", new Blob([await writeStates(states)], { type: MEDIA_TYPE }), "states.arrows");
+        for (const [part, blob] of parts) form.append(part, blob, part);
+        payload = form;
       }
       response = await this.fetch(`${this.baseURL}/v1/systemone`, { method: "POST", headers, signal, body: payload });
       if (!response.ok) {
@@ -146,6 +196,10 @@ class TypeSafeClient {
 
 exports.TypeSafeClient = TypeSafeClient;
 exports.APIError = APIError;
+exports.box = box;
 exports.choice = choice;
+exports.Image = Image;
+exports.image = image;
 exports.noul = noul;
 exports.score = score;
+exports.withAssets = withAssets;

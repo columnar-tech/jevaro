@@ -4,7 +4,12 @@ import io
 import json
 
 import pyarrow as pa
-from typesafe_sdk import Choice, ChoiceAnswer, Noul, NoulAnswer, Score, ScoreAnswer
+from typesafe_sdk import Box, BoxAnswer, Choice, ChoiceAnswer, Noul, NoulAnswer, Score, ScoreAnswer
+
+BOX_FORMATS = ("typesafe", "geoarrow")
+# GeoArrow's box layout: x is the image's width and y its height, growing downward.
+GEOARROW_EDGES = {"xmin": "left", "ymin": "top", "xmax": "right", "ymax": "bottom"}
+GEOARROW_BOX = {b"ARROW:extension:name": b"geoarrow.box", b"ARROW:extension:metadata": b"{}"}
 
 
 def required(name, data_type):
@@ -115,7 +120,42 @@ class NoulType(AnswerType):
         return answer.noul
 
 
-def schema_for(questions):
+class BoxType(AnswerType):
+    """A box's four edges as TypeSafe names them, or as a GeoArrow box; confidence may be null."""
+
+    kind = "box"
+
+    def __init__(self, geoarrow=False):
+        self.geoarrow = geoarrow
+        edges = GEOARROW_EDGES if geoarrow else ("top", "bottom", "left", "right")
+        box = pa.field("box", pa.struct([required(edge, pa.float64()) for edge in edges]), nullable=False,
+                       metadata=GEOARROW_BOX if geoarrow else None)
+        super().__init__(pa.struct([box, pa.field("confidence", pa.float64())]))
+
+    @classmethod
+    def __arrow_ext_deserialize__(cls, storage, serialized):
+        if json.loads(serialized) != {}:
+            raise ValueError("Box metadata must be empty")
+        result = cls(geoarrow=[field.name for field in storage.field("box").type] == list(GEOARROW_EDGES))
+        if not storage.equals(result.storage_type):
+            raise ValueError("Storage does not match Jevaro extension metadata")
+        return result
+
+    def pack(self, answer):
+        if not isinstance(answer, BoxAnswer):
+            raise ValueError("Expected a Box answer")
+        edges = answer.box
+        if self.geoarrow:
+            box = {name: getattr(edges, edge) for name, edge in GEOARROW_EDGES.items()}
+        else:
+            box = {"top": edges.top, "bottom": edges.bottom, "left": edges.left, "right": edges.right}
+        return {"box": box, "confidence": answer.confidence}
+
+
+def schema_for(questions, box_format="typesafe"):
+    if box_format not in BOX_FORMATS:
+        raise ValueError(f"box_format must be one of {', '.join(BOX_FORMATS)}")
+
     def answer_type(question):
         if isinstance(question, Choice):
             return ChoiceType(question.criteria)
@@ -123,6 +163,8 @@ def schema_for(questions):
             return ScoreType(question.criteria)
         if isinstance(question, Noul):
             return NoulType()
+        if isinstance(question, Box):
+            return BoxType(geoarrow=box_format == "geoarrow")
         raise TypeError("Unsupported question type")
 
     return pa.schema([required(name, answer_type(q)) for name, q in questions.items()])

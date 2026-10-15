@@ -4,6 +4,7 @@
 const fs = require("node:fs");
 const http2 = require("node:http2");
 const path = require("node:path");
+const zlib = require("node:zlib");
 
 const [port, certDir] = [Number(process.argv[2]), process.argv[3]];
 const [baseMs, perQuestionMs, spread] = process.argv.slice(4, 7).map(Number);
@@ -46,7 +47,9 @@ const server = http2.createSecureServer({
   const chunks = [];
   req.on("data", chunk => chunks.push(chunk));
   req.on("end", () => {
-    const body = Buffer.concat(chunks);
+    let body = Buffer.concat(chunks);
+    // The TypeSafe SDK compresses request bodies of 1 KiB or more with zstd.
+    if (req.headers["content-encoding"] === "zstd") body = zlib.zstdDecompressSync(body);
     const payload = JSON.parse(body);
     const count = Object.keys(payload.questions).length;
     active++; peak = Math.max(peak, active); calls++; questions += count;

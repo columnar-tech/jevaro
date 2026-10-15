@@ -3,7 +3,7 @@
 Start Jevaro, evaluate three customer messages, and read the Arrow results
 from Python and JavaScript.
 
-You need Python 3.11+, Node.js 20.3+ for the JavaScript example, and a
+You need Python 3.11+, Node.js 22+ for the JavaScript example, and a
 [TypeSafe API key](https://console.typesafe.ai). Use a Unix shell.
 The checkout contains the Python example. Install the packages from PyPI and npm.
 If you already have a checkout, start at its root and skip the clone commands.

@@ -58,7 +58,9 @@ class Exportable:
         return self.table.__arrow_c_stream__(requested_schema)
 
 
-class ProxyTests(unittest.TestCase):
+class ServerTestCase(unittest.TestCase):
+    """A Jevaro server on a local port, over the fake upstream."""
+
     def setUp(self):
         self.upstream = Upstream()
         self.socket = socket.socket()
@@ -90,6 +92,12 @@ class ProxyTests(unittest.TestCase):
                 self.fail("Timed out waiting for test condition")
             time.sleep(0.005)
 
+    def post_form(self, files=None, **kwargs):
+        with httpx2.Client(base_url=self.base_url, headers={"Authorization": "Bearer jevaro-test-key"}) as client:
+            return client.post("/v1/systemone", files=files, **kwargs)
+
+
+class ProxyTests(ServerTestCase):
     def test_schema_before_any_answers_and_bounded_cancellation(self):
         reader = self.client.system_one(states=[{"id": i, "gate": True} for i in range(1000)], questions=QUESTIONS)
         self.assertIsInstance(reader, pa.RecordBatchReader)
@@ -410,10 +418,6 @@ class ProxyTests(unittest.TestCase):
         self.assertEqual(rows[0]["department"], "returns")
         self.assertTrue(all(self.upstream.auth_matches))
 
-    def post_form(self, files=None, **kwargs):
-        with httpx2.Client(base_url=self.base_url, headers={"Authorization": "Bearer jevaro-test-key"}) as client:
-            return client.post("/v1/systemone", files=files, **kwargs)
-
     def test_arrow_rows_become_objects_and_match_json_states(self):
         table = pa.table({"id": pa.array([3, 1, 2], pa.int64()), "text": ["c", "a", "b"],
                           "tags": pa.array([["x"], [], None], pa.list_(pa.string()))})
@@ -497,7 +501,7 @@ class ProxyTests(unittest.TestCase):
         cases = [
             ("Missing part 'states'", {"request": (None, request, "application/json")}),
             ("Missing part 'request'", {"states": ("s.arrows", good, MEDIA_TYPE)}),
-            ("Unexpected part 'extra'", {**form(good), "extra": (None, b"x", None)}),
+            ("Part 'extra' is not named by any asset", {**form(good), "extra": (None, b"x", None)}),
             ("Duplicate part 'request'", [("request", (None, request, None))] * 2
              + [("states", ("s.arrows", good, None))]),
             ("must be application/json", {**form(good), "request": (None, request, "text/plain")}),
@@ -508,7 +512,7 @@ class ProxyTests(unittest.TestCase):
             ("at least one row", form(pa.table({"text": pa.array([], pa.string())}))),
             ("score contains NaN", form(pa.table({"score": [0.5, float("nan")]}))),
             ("scores[] contains NaN", form(pa.table({"scores": [[1.0, float("inf")]]}))),
-            ("unsupported Arrow type binary", form(pa.table({"blob": [b"x"]}))),
+            ("unsupported Arrow type fixed_size_binary[1]", form(pa.table({"id": pa.array([b"x"], pa.binary(1))}))),
             ("unsupported Arrow type list_view", form(pa.table({"v": pa.array([[1]], pa.list_view(pa.int64()))}))),
             ("duplicate column names", form(pa.table([pa.array(["a"]), pa.array(["b"])], names=["x", "x"]))),
             ("map with int64 keys", form(pa.table({"m": pa.array([[(1, "a")]], pa.map_(pa.int64(), pa.string()))}))),
@@ -519,7 +523,8 @@ class ProxyTests(unittest.TestCase):
             ("has type int64", states(pa.table({"n": [1]}), state_column="n")),
             ("Row 1: text is null", states(pa.table({"text": ["a", None]}), state_column="text")),
             ("Row 0: a JSON state must be", states(pa.table({"j": pa.array(["1"], pa.json_())}), state_column="j")),
-            ("extra_forbidden", states(pa.table({"text": ["a"]}), states=["b"])),
+            ("not both", states(pa.table({"text": ["a"]}), states=["b"])),
+            ("extra_forbidden", states(pa.table({"text": ["a"]}), unknown=True)),
             ("Choice requires 1 to 255 options", form(good, {"questions": {"c": {"type": "choice", "criteria": {}}}})),
             ("json_invalid", {**form(good), "request": (None, b"{bad", None)}),
         ]

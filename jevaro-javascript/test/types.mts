@@ -1,4 +1,4 @@
-import { TypeSafeClient, choice, score, noul } from "jevaro";
+import { TypeSafeClient, box, choice, image, Image, score, noul, withAssets } from "jevaro";
 import { tableFromArrays, type AsyncRecordBatchStreamReader } from "apache-arrow";
 
 const client = new TypeSafeClient({ baseURL: "http://localhost:8000" });
@@ -19,3 +19,15 @@ await client.systemOne({ states: ["one", "two"], questions, rowsPerCall: 32 });
 await client.systemOne({ states: table, stateColumn: "text", questions, rowsPerCall: 32 });
 // @ts-expect-error rowsPerCall is a number
 await client.systemOne({ states: ["one"], questions, rowsPerCall: "32" });
+const photo: Image = image(new Uint8Array([0x89, 0x50]));
+await client.systemOne({
+  states: [{ photo }, withAssets`Shelf: ${photo}`, photo, "Logo: <logo>"],
+  questions: { mug: box("the mug in `photo`"), same: noul({ question: "Same as `badge`?", badge: photo }) },
+  assets: { "<logo>": Image.fromBase64("iVBORw0KGgo=") },
+  boxFormat: "geoarrow",
+});
+await client.systemOne({ state: photo, questions: { mug: box() } }, { headers: { "TypeSafe-Danger-Zone-Images": "true" } });
+// @ts-expect-error boxFormat is "typesafe" or "geoarrow"
+await client.systemOne({ state: photo, questions, boxFormat: "pixels" });
+// @ts-expect-error assets are images
+await client.systemOne({ state: "<a>", questions, assets: { "<a>": new Uint8Array([1]) } });

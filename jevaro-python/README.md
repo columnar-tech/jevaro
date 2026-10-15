@@ -49,23 +49,25 @@ if you stop early; full iteration closes it automatically.
 
 ## Questions and arguments
 
-`Choice`, `Score`, and `Noul` are re-exported from the official TypeSafe SDK.
-Question dictionaries work too. See the bundled
+`Choice`, `Score`, `Noul`, `Box`, and `Image` are re-exported from the
+official TypeSafe SDK. Question dictionaries work too. See the bundled
 [three-type example](https://github.com/columnar-tech/jevaro/blob/main/jevaro-python/example.py).
 
-`system_one(state, questions, *, states=..., state_column=..., model=..., rows_per_call=..., timeout=..., extra_headers=...)`
+`system_one(state, questions, *, states=..., state_column=..., model=..., rows_per_call=..., assets=..., box_format=..., timeout=..., extra_headers=...)`
 returns an `ArrowReader`. Supply exactly one of `state` and `states`.
 
 | Argument | Meaning |
 | --- | --- |
-| `state` | One string, object, or array |
+| `state` | One string, object, array, or [image](#images-and-box-questions) |
 | `states` | A nonempty list of states, or [tabular Arrow data](#arrow-states) |
 | `state_column` | With Arrow states, the column whose values are the states |
 | `questions` | A nonempty mapping of question IDs to definitions |
 | `model` | Override the client's model |
 | `rows_per_call` | States per upstream call, 1 to 256; above 1, [packs states](#pack-states-into-fewer-calls) |
+| `assets` | [Images under names you choose](#name-images-in-text), to write inside text |
+| `box_format` | `"typesafe"` (default) or `"geoarrow"`: how [Box answers](#box-answers) store their edges |
 | `timeout` | Override the client's I/O timeout, in seconds |
-| `extra_headers` | Add or override headers for this request |
+| `extra_headers` | Add or override headers for this request, such as [danger-zone headers](#images-and-box-questions) |
 
 An array in singular `state` is one evaluation. Use `states` to evaluate its
 elements separately.
@@ -155,6 +157,121 @@ A state column can also hold lists, maps, or `arrow.json` values. See the
 [HTTP API](https://github.com/columnar-tech/jevaro/blob/main/docs/http-api.md#arrow-request)
 for how Arrow types become JSON.
 
+## Images and Box questions
+
+States and questions can include images, and a `Box` question finds where
+something is in one. TypeSafe calls these features
+[dreamer-ready](https://docs.typesafe.ai/images): fit for prototypes, not yet
+for production. Send the `TypeSafe-Danger-Zone-Images: true` header, which
+Jevaro passes on to TypeSafe. `Box` needs Jev 1.14, so use `jev-preview`:
+
+```python
+from pathlib import Path
+from jevaro import Box, Image, Noul, TypeSafeClient
+
+IMAGES = {"TypeSafe-Danger-Zone-Images": "true"}
+questions = {
+    "mug": Box(instructions="the coffee mug in `photo`"),
+    "mine": Noul(instructions={
+        "question": "Is the mug in `photo` the one in `example`?",
+        "example": Image(Path("my-mug.jpg")),
+    }),
+}
+states = [
+    {"id": 1, "photo": Image(Path("kitchen.jpg"))},
+    {"id": 2, "photo": Image(Path("office.png"))},
+]
+
+with TypeSafeClient(model="jev-preview") as client:
+    with client.system_one(states=states, questions=questions, extra_headers=IMAGES) as reader:
+        for row in reader.read_all().to_pylist():
+            print(row)
+```
+
+Each row has the box's edges, as fractions of the image's height and width,
+and the Noul:
+
+```python
+{'mug': {'box': {'top': 0.25, 'bottom': 0.82, 'left': 0.44, 'right': 0.84}, 'confidence': 0.92}, 'mine': 0.87}
+{'mug': {'box': {'top': 0.31, 'bottom': 0.64, 'left': 0.12, 'right': 0.35}, 'confidence': 0.88}, 'mine': 0.08}
+```
+
+The SDK writes each image as its reference, `str(image)`, such as
+`<image:3fa85f64...>`, and uploads the file once, in its own part of the
+request. Jevaro sends each upstream call the images that its state and the
+questions refer to: here, one photo and `my-mug.jpg`. An `Image` can come from
+a path, bytes, `Image.from_base64()`, or `Image.from_pil()`.
+
+To send the header with every request, create the client with
+`headers={"TypeSafe-Danger-Zone-Images": "true"}`. Jevaro passes on every
+`TypeSafe-Danger-Zone-*` header, including `TypeSafe-Danger-Zone-Long-Context`.
+`rows_per_call` can't be used with images or Box questions.
+
+### Images in Arrow states
+
+In [Arrow states](#arrow-states), each binary value is an image. Jevaro writes
+a reference in its place and sends the image with that row's call:
+
+```python
+photos = pa.table({
+    "id": [1, 2],
+    "photo": [Path("kitchen.jpg").read_bytes(), Path("office.png").read_bytes()],
+})
+
+with TypeSafeClient(model="jev-preview") as client:
+    # First state: {"id": 1, "photo": "<image:5d1c2a7e0b9f4c3d8e6a000000000000>"}
+    with client.system_one(
+        states=photos, questions={"mug": Box(instructions="the coffee mug in `photo`")},
+        extra_headers=IMAGES,
+    ) as reader:
+        boxes = reader.read_all()
+```
+
+With `state_column="photo"`, each state is the image alone; write instructions
+such as `"the coffee mug"`. Polars `Binary` columns work the same way.
+
+### Name images in text
+
+To write an image inside text, pass it in `assets` under a name of your
+choice, and write the name where the image belongs:
+
+```python
+with client.system_one(
+    states=[{"id": 1, "photo": Image(Path("kitchen.jpg"))}],
+    questions={"mine": Noul(instructions="Is the mug in `photo` this one: <my-mug>?")},
+    assets={"<my-mug>": Image(Path("my-mug.jpg"))},
+    extra_headers=IMAGES,
+) as reader:
+    print(reader.read_all()["mine"].to_pylist())  # [0.87]
+```
+
+Use names that can't appear in your text by accident. Every name must appear
+in a state, instructions, or criteria.
+
+### Box answers
+
+By default, a Box column keeps TypeSafe's edge names. With
+`box_format="geoarrow"`, its `box` field is a
+[GeoArrow](https://geoarrow.org/) box:
+
+```python
+with client.system_one(states=photos, questions={"mug": Box(instructions="the coffee mug in `photo`")},
+                       box_format="geoarrow", extra_headers=IMAGES) as reader:
+    print(reader.read_all()["mug"].to_pylist()[0])
+# {'box': {'xmin': 0.44, 'ymin': 0.25, 'xmax': 0.84, 'ymax': 0.82}, 'confidence': 0.92}
+```
+
+`confidence` is `None` when TypeSafe doesn't report one. See the
+[Arrow schema](https://github.com/columnar-tech/jevaro/blob/main/docs/arrow-schema.md#box)
+for both layouts.
+
+TypeSafe checks each image: PNG or JPEG, 256 to 1,568 pixels on each side, and
+its [other limits](https://docs.typesafe.ai/images#limits). An image that it
+rejects ends the stream at that row, so
+[prepare images](https://docs.typesafe.ai/images#preparing-images) first.
+See the [HTTP API](https://github.com/columnar-tech/jevaro/blob/main/docs/http-api.md#images-and-box-questions)
+for which images each call sends and the checks Jevaro makes first.
+
 ## Pack states into fewer calls
 
 `rows_per_call` puts up to that many states in each upstream call:
@@ -222,9 +339,10 @@ Consume a reader from one task at a time.
 
 ## Metadata and files
 
-The schema uses Arrow extension metadata for Choice, Noul, and Score.
+The schema uses Arrow extension metadata for Choice, Noul, Score, and Box.
 Choice selections are integer indices into shared labels, and Score legends
-are stored once in the schema. Noul stores the probability of yes. See the
+are stored once in the schema. Noul stores the probability of yes, and Box
+stores four edges and a confidence. See the
 [Arrow schema](https://github.com/columnar-tech/jevaro/blob/main/docs/arrow-schema.md)
 for decoding rules. `batch.to_pylist()` exposes these storage values.
 

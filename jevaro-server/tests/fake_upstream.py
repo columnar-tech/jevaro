@@ -5,11 +5,38 @@ import json
 import threading
 from collections import Counter
 from dataclasses import replace
+from email.parser import BytesParser
+from email.policy import HTTP
 
 import httpx2
 from typesafe_sdk import AsyncTypeSafeClient
 
 from jevaro_server.app import create_app
+
+try:
+    from compression.zstd import decompress
+except ImportError:  # Before Python 3.14, the SDK compresses only with backports.zstd installed.
+    try:
+        from backports.zstd import decompress
+    except ImportError:
+        decompress = None
+
+
+def read_body(request):
+    """The JSON request and {asset reference: image bytes}, from JSON or a multipart upload."""
+    content = request.content
+    if request.headers.get("content-encoding") == "zstd":
+        content = decompress(content)
+    content_type = request.headers["content-type"]
+    if not content_type.startswith("multipart/form-data"):
+        return json.loads(content), {}
+    message = BytesParser(policy=HTTP).parsebytes(f"Content-Type: {content_type}\r\n\r\n".encode() + content)
+    parts = {part.get_param("name", header="content-disposition"): part.get_payload(decode=True)
+             for part in message.iter_parts()}
+    payload = json.loads(parts.pop("request"))
+    images = {reference: parts.pop(asset["part"]) for reference, asset in payload["assets"].items()}
+    assert not parts, f"Unclaimed parts: {list(parts)}"
+    return payload, images
 
 
 class Upstream:
@@ -23,6 +50,10 @@ class Upstream:
         self.auth_matches = []
         self.http_clients = []
         self.payloads = []
+        # Per call: its danger-zone headers, Content-Encoding, and {reference: image bytes}.
+        self.headers = []
+        self.encodings = []
+        self.images = []
         self.gate = threading.Event()
         self.transport = httpx2.MockTransport(self.handle)
 
@@ -34,8 +65,12 @@ class Upstream:
         )
 
     async def handle(self, request):
-        payload = json.loads(request.content)
+        payload, images = read_body(request)
         self.payloads.append(payload)
+        self.images.append(images)
+        self.headers.append({name: value for name, value in request.headers.items()
+                             if name.startswith("typesafe-danger-zone-")})
+        self.encodings.append(request.headers.get("content-encoding"))
         state = payload["state"]
         # A packed call has an empty state; each question carries its row's state,
         # and its key starts with the row's position in the call.
@@ -79,6 +114,12 @@ class Upstream:
                 number = row.get("id", 0) if isinstance(row, dict) else 0
                 if kind == "noul":
                     answers[name] = {"type": kind, "noul": (number % 1000) / 1000}
+                elif kind == "box":
+                    # Edges from the row's id, so each row's box is distinct and easy to check.
+                    answers[name] = {"type": kind, "box": {
+                        "top": number / 1000, "bottom": 0.5 + number / 1000,
+                        "left": 0.25 + number / 1000, "right": 0.75 + number / 1000,
+                    }, "confidence": None if isinstance(row, dict) and row.get("no_confidence") else 0.875}
                 elif kind == "choice":
                     labels = list(question["criteria"])
                     winner = labels[number % len(labels)]

@@ -11,7 +11,7 @@ authors = [{name = "Columnar Technologies Inc."}]
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.11"
-dependencies = ["typesafe-sdk==0.7.2", "httpx2>=2.13,<3", "pyarrow==25.0.1"]
+dependencies = ["typesafe-sdk==0.7.5", "httpx2>=2.13,<3", "pyarrow==25.0.1"]
 
 [project.urls]
 Homepage = "https://github.com/columnar-tech/jevaro"

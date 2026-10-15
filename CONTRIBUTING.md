@@ -2,7 +2,7 @@
 
 ## Setup
 
-Use Python 3.11+ and Node.js 20.3+. Run these commands from the repository root
+Use Python 3.11+ and Node.js 22+. Run these commands from the repository root
 in a Unix shell:
 
 ```sh
@@ -39,9 +39,11 @@ For an optional live check, set `TYPESAFE_API_KEY` and run:
 .venv/bin/python jevaro-server/tests/live_smoke.py
 ```
 
-This sends three states through each SDK, as JSON and as Arrow IPC, checks a
-saved Arrow IPC stream, and stops its server. It makes twelve paid evaluations,
-plus any upstream retries.
+This sends three states through each SDK, as JSON and as Arrow IPC, packs
+them into one call, and checks a saved Arrow IPC stream. It also asks a Box
+question about a generated image through each SDK, as an image object and as
+an Arrow binary value, with `jev-preview`. Then it stops its server. It makes
+nineteen paid evaluations, plus any upstream retries.
 
 ## Changes
 

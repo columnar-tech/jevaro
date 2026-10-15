@@ -1,8 +1,9 @@
 # Arrow schema
 
 Jevaro returns an Arrow IPC stream with one column per question and one row
-per state. All columns, struct members, and list elements are non-nullable.
-Row position matches the input state position.
+per state. All columns, struct members, and list elements are non-nullable,
+except a Box answer's `confidence`. Row position matches the input state
+position.
 
 PyArrow writes the schema with the first batch, so we send a zero-row batch
 to make the schema available before any answers arrive. Each later batch
@@ -15,7 +16,7 @@ Each field carries two UTF-8 metadata entries:
 
 | Key | Contents |
 | --- | --- |
-| `ARROW:extension:name` | `jevaro.choice`, `jevaro.score`, or `jevaro.noul` |
+| `ARROW:extension:name` | `jevaro.choice`, `jevaro.score`, `jevaro.noul`, or `jevaro.box` |
 | `ARROW:extension:metadata` | JSON describing the shared answer data |
 
 Readers without these extension classes see the physical types and metadata.
@@ -77,14 +78,94 @@ Storage is one `float64`. It has no shared answer metadata:
 The value is the probability of yes. To reconstruct the answer, wrap it as
 `{"type": "noul", "noul": value}`. Noul has no separate confidence field.
 
+## Box
+
+A Box answer locates one thing in an image. The struct holds the answer's
+fields, with the same names as TypeSafe's JSON:
+
+```text
+struct<
+  box: struct<
+    top: float64 not null,
+    bottom: float64 not null,
+    left: float64 not null,
+    right: float64 not null
+  > not null,
+  confidence: float64
+>
+```
+
+```json
+{}
+```
+
+Each edge is a fraction of the image's size, measured from its top-left
+corner: `top` and `bottom` of its height, `left` and `right` of its width. A
+row from `to_pylist()` looks like this:
+
+```json
+{"box": {"top": 0.25, "bottom": 0.82, "left": 0.44, "right": 0.84}, "confidence": 0.92}
+```
+
+`confidence` is null when TypeSafe doesn't report one. To reconstruct a Box
+answer, add `"type": "box"`. To crop the image to the box in pixels, multiply
+`left` and `right` by its width, and `top` and `bottom` by its height.
+
+### GeoArrow layout
+
+With `"box_format": "geoarrow"` in the request, the `box` field is a
+[GeoArrow](https://geoarrow.org/) box instead. Its field metadata has
+`ARROW:extension:name` `geoarrow.box` and `ARROW:extension:metadata` `{}`:
+
+```text
+struct<
+  box: struct<
+    xmin: float64 not null,
+    ymin: float64 not null,
+    xmax: float64 not null,
+    ymax: float64 not null
+  > not null,
+  confidence: float64
+>
+```
+
+The same answer is:
+
+```json
+{"box": {"xmin": 0.44, "ymin": 0.25, "xmax": 0.84, "ymax": 0.82}, "confidence": 0.92}
+```
+
+`x` runs across the image's width and `y` down its height, so `xmin` is
+`left`, `ymin` is `top`, `xmax` is `right`, and `ymax` is `bottom`. The box
+has no CRS. The `jevaro.box` metadata is `{}` in both layouts; the `box`
+field's names tell them apart.
+
+GeoArrow tools look for `geoarrow.box` columns at the top level. This makes
+one from the `box` field, keeping its metadata:
+
+```python
+import pyarrow as pa
+import pyarrow.compute as pc
+
+box = table.schema.field("mug").type.field("box")
+boxes = pa.table([pc.struct_field(table["mug"], "box")], schema=pa.schema([box.with_name("mug")]))
+```
+
+With [geoarrow-pyarrow](https://geoarrow.org/geoarrow-python/) imported,
+`boxes["mug"]` is a `geoarrow.box` column, and
+`geoarrow.pyarrow.as_wkt(boxes["mug"])` gives
+`POLYGON ((0.44 0.25, 0.84 0.25, 0.84 0.82, 0.44 0.82, 0.44 0.25))`.
+
 ## Precision and contents
 
-All numeric answers use `float64` to preserve the TypeSafe Python SDK's floats.
+All numeric answers, including Box edges, use `float64` to preserve the
+TypeSafe Python SDK's floats.
 Fixed-size probability lists need no offsets. Shared labels and legends are
 stored once in the schema; each Choice selection uses one byte per row.
 
-The table contains the answer data. Input states, question definitions,
-instructions, Choice descriptions, model names, and token usage are omitted.
+The table contains the answer data. Input states and their images, question
+definitions, instructions, Choice descriptions, model names, and token usage
+are omitted.
 The Score legend is retained because it is part of the answer object.
 
 The writer checks answer names, probability keys, and Score legends against

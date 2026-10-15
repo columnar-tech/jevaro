@@ -1,11 +1,18 @@
-"""Arrow IPC input: each row becomes one state, as the JSON the TypeSafe API accepts."""
+"""Arrow IPC input: each row becomes one state, as the JSON the TypeSafe API accepts.
+
+A binary value is an image file. It becomes a reference in the state, and its
+bytes go with that row's upstream call as an asset.
+"""
 
 import json
+from uuid import uuid4
 
 import pyarrow as pa
 import pyarrow.compute as pc
 
 ROWS_PER_CHUNK = 1024
+# Converting a chunk copies its images out of Arrow, so keep image chunks small.
+IMAGE_ROWS_PER_CHUNK = 32
 types = pa.types
 
 
@@ -21,6 +28,10 @@ def is_list(data_type):
     return types.is_list(data_type) or types.is_large_list(data_type) or types.is_fixed_size_list(data_type)
 
 
+def is_binary(data_type):
+    return types.is_binary(data_type) or types.is_large_binary(data_type) or types.is_binary_view(data_type)
+
+
 def child(path, name):
     return f"{path}.{name}" if path else name
 
@@ -29,8 +40,8 @@ def plain_type(data_type, path):
     """The type to cast to before to_pylist(), so every value is already JSON."""
     if isinstance(data_type, pa.JsonType):
         return data_type.storage_type
-    if (is_text(data_type) or types.is_boolean(data_type) or types.is_integer(data_type)
-            or types.is_floating(data_type) or types.is_null(data_type)):
+    if (is_text(data_type) or is_binary(data_type) or types.is_boolean(data_type)
+            or types.is_integer(data_type) or types.is_floating(data_type) or types.is_null(data_type)):
         return data_type
     if (types.is_date(data_type) or types.is_time(data_type) or types.is_timestamp(data_type)
             or types.is_decimal(data_type)):
@@ -107,15 +118,16 @@ def check_finite(array, path):
         check_finite(array.items.slice(start, end - start), f"{path}{{}}")
 
 
-def has_float(data_type):
-    if types.is_floating(data_type):
+def contains(data_type, kind):
+    """Whether data_type is, or nests, a type for which kind(type) is true."""
+    if kind(data_type):
         return True
     if types.is_dictionary(data_type) or is_list(data_type):
-        return has_float(data_type.value_type)
+        return contains(data_type.value_type, kind)
     if types.is_map(data_type):
-        return has_float(data_type.item_type)
+        return contains(data_type.item_type, kind)
     if types.is_struct(data_type):
-        return any(has_float(field.type) for field in data_type)
+        return any(contains(field.type, kind) for field in data_type)
     return False
 
 
@@ -127,6 +139,10 @@ class States:
     """
 
     def __init__(self, table, state_column=None):
+        # Every image reference in this request: its own prefix, then a count.
+        self.prefix = f"<image:{uuid4().hex[:20]}"
+        self.count = 0
+        self.images = 0
         if table.num_rows == 0:
             raise StatesError("states must have at least one row")
         if state_column is None:
@@ -144,21 +160,27 @@ class States:
             if types.is_dictionary(value_type):
                 value_type = value_type.value_type
             self.json_states = isinstance(value_type, pa.JsonType)
-            if not (is_text(value_type) or types.is_struct(value_type) or is_list(value_type)
-                    or types.is_map(value_type) or isinstance(value_type, pa.JsonType)):
+            if not (is_text(value_type) or is_binary(value_type) or types.is_struct(value_type)
+                    or is_list(value_type) or types.is_map(value_type) or isinstance(value_type, pa.JsonType)):
                 raise StatesError(f"state_column {state_column!r} has type {self.column.type}; a state "
-                                  "must be a string, struct, list, map, or arrow.json value")
+                                  "must be a string, image, struct, list, map, or arrow.json value")
         self.target = plain_type(self.column.type, self.path)
         self.parse = json_parser(self.column.type)
+        self.binary = contains(self.column.type, is_binary)
 
     def __len__(self):
         return len(self.column)
 
     def __iter__(self):
+        return (state for state, _ in self.rows())
+
+    def rows(self):
+        """Yield (state, images): images maps the references of the row's binary values to their bytes."""
         row = 0
+        size = IMAGE_ROWS_PER_CHUNK if self.binary else ROWS_PER_CHUNK
         for chunk in self.column.chunks:
-            for offset in range(0, len(chunk), ROWS_PER_CHUNK):
-                part = chunk.slice(offset, ROWS_PER_CHUNK)
+            for offset in range(0, len(chunk), size):
+                part = chunk.slice(offset, size)
                 try:
                     values = part.cast(self.target).to_pylist(maps_as_pydicts="strict")
                 except (KeyError, ValueError, pa.ArrowException) as error:
@@ -169,10 +191,11 @@ class States:
                     reason = error.args[0] if isinstance(error, KeyError) and error.args else error
                     raise StatesError(f"Rows {row} to {row + len(part) - 1}: {reason}") from error
                 for value in values:
-                    yield self.state(value, row)
+                    images = {}
+                    yield self.state(value, row, images), images
                     row += 1
 
-    def state(self, value, row):
+    def state(self, value, row, images):
         if value is None:
             raise StatesError(f"Row {row}: {self.path} is null; a state cannot be null")
         if self.parse:
@@ -182,19 +205,39 @@ class States:
                 raise StatesError(f"Row {row}: invalid arrow.json value: {error}") from error
             if self.json_states and not isinstance(value, (str, dict, list)):
                 raise StatesError(f"Row {row}: a JSON state must be a string, object, or array")
+        if self.binary:
+            value = self.lift_images(value, row, self.path, images)
+        return value
+
+    def lift_images(self, value, row, path, images):
+        """value with each image file (bytes) replaced by a new reference, added to images."""
+        if isinstance(value, bytes):
+            if not value:
+                raise StatesError(f"Row {row}: {path} is an empty image")
+            reference = f"{self.prefix}{self.count:012x}>"
+            self.count += 1
+            images[reference] = value
+            return reference
+        if isinstance(value, dict):
+            return {key: self.lift_images(item, row, child(path, key), images) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self.lift_images(item, row, f"{path}[]", images) for item in value]
         return value
 
     def validate(self, check=None):
         """Convert every row once and discard it, so bad input fails before streaming starts.
 
-        check, if given, is called with each state and its row number.
+        check, if given, is called with each state, its images, and its row number.
+        Afterward, self.images is the number of images in all rows.
         """
-        if has_float(self.column.type):
+        if contains(self.column.type, types.is_floating):
             for chunk in self.column.chunks:
                 check_finite(chunk, self.path)
-        for row, state in enumerate(self):
+        self.images = 0
+        for row, (state, images) in enumerate(self.rows()):
+            self.images += len(images)
             if check:
-                check(state, row)
+                check(state, images, row)
 
 
 def read_states(data, state_column=None, check=None):

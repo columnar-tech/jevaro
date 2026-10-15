@@ -1,8 +1,8 @@
 // Invoked against the offline HTTP fixture by jevaro-server/tests/test_proxy.py.
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { tableFromArrays } = require("apache-arrow");
-const { TypeSafeClient, choice, score, noul } = require("jevaro");
+const { Binary, Int32, Table, tableFromArrays, vectorFromArray } = require("apache-arrow");
+const { TypeSafeClient, box, choice, image, score, noul } = require("jevaro");
 
 const run = process.env.JEVARO_TEST_URL ? test : test.skip;
 const client = new TypeSafeClient({ baseURL: process.env.JEVARO_TEST_URL, apiKey: "jevaro-test-key" });
@@ -75,4 +75,29 @@ run("caller abort signal remains active after receiving schema", async () => {
   await reader.next(); // Initial zero-row batch.
   controller.abort();
   await assert.rejects(reader.next());
+});
+
+run("images and Box answers through the server", async () => {
+  const red = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]);
+  const headers = { "TypeSafe-Danger-Zone-Images": "true" };
+  const mug = box("the mug in `photo`");
+  const rows = [];
+  const reader = await client.systemOne({
+    states: [{ id: 51, photo: image(red) }, { id: 52, photo: image(red), no_confidence: true }], questions: { mug },
+  }, { headers });
+  const field = reader.schema.fields.find(f => f.name === "mug");
+  assert.equal(field.metadata.get("ARROW:extension:name"), "jevaro.box");
+  for await (const batch of reader) for (const row of batch) rows.push(row.mug.toJSON());
+  assert.deepEqual(rows.map(row => ({ ...row, box: row.box.toJSON() })), [
+    { box: { top: 0.051, bottom: 0.551, left: 0.301, right: 0.801 }, confidence: 0.875 },
+    { box: { top: 0.052, bottom: 0.552, left: 0.302, right: 0.802 }, confidence: null },
+  ]);
+  // Each binary value is an image.
+  const photos = new Table({ id: vectorFromArray([53], new Int32()), photo: vectorFromArray([red], new Binary()) });
+  const geo = await client.systemOne({ states: photos, questions: { mug }, boxFormat: "geoarrow" }, { headers });
+  const boxField = geo.schema.fields.find(f => f.name === "mug").type.children[0];
+  assert.equal(boxField.metadata.get("ARROW:extension:name"), "geoarrow.box");
+  const [batch] = (await geo.readAll()).filter(b => b.numRows);
+  assert.deepEqual(batch.get(0).mug.box.toJSON(), { xmin: 0.303, ymin: 0.053, xmax: 0.803, ymax: 0.553 });
+  await assert.rejects(client.systemOne({ state: "a", questions: { mug } }), error => error.status === 422);
 });

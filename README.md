@@ -12,7 +12,7 @@ converts the JSON answers into an Arrow IPC stream, in input order.
 
 The schema arrives before the answers. Each state becomes a row and each
 question a column. Arrow extension types preserve the meaning of Choice,
-Noul, and Score, with shared labels and legends stored once in the schema.
+Noul, Score, and Box, with shared labels and legends stored once in the schema.
 The resulting Arrow data can go into pandas, Polars, DuckDB, and other Arrow
 tools.
 
@@ -69,7 +69,9 @@ ordering, and conversion from JSON to Arrow. See
 [configuration and limits](jevaro-server/README.md#limits) for details.
 
 States can be sent as JSON or as an Arrow table; see the
-[HTTP API](docs/http-api.md#arrow-request). We’re exploring better adaptation
+[HTTP API](docs/http-api.md#arrow-request). States and questions can include
+[images](docs/http-api.md#images-and-box-questions), and Box questions find
+where something is in an image. We’re exploring better adaptation
 to evolving API rate limits and output record batch sizes. [Open an issue](https://github.com/columnar-tech/jevaro/issues)
 to share ideas.
 

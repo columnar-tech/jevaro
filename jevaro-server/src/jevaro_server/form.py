@@ -10,7 +10,7 @@ from python_multipart.multipart import MultipartParser, parse_options_header
 
 
 class FormError(ValueError):
-    """A multipart body without exactly the expected parts."""
+    """A malformed multipart body."""
 
 
 def media_type(value):
@@ -18,8 +18,8 @@ def media_type(value):
     return parse_options_header(value or "")[0].decode("latin-1").lower()
 
 
-async def read_parts(request, names):
-    """Return {name: (media type or None, bytearray)} for each of the named parts."""
+async def read_parts(request):
+    """Return {name: (media type or None, bytearray)} for each part, in order."""
     _, options = parse_options_header(request.headers["content-type"])
     boundary = options.get(b"boundary")
     if not boundary:
@@ -52,8 +52,6 @@ async def read_parts(request, names):
         name = params.get(b"name", b"").decode("utf-8", "replace")
         if disposition.lower() != b"form-data" or not name:
             raise FormError("Each part needs Content-Disposition: form-data with a name")
-        if name not in names:
-            raise FormError(f"Unexpected part {name!r}; send only {' and '.join(map(repr, names))}")
         if name in parts:
             raise FormError(f"Duplicate part {name!r}")
         current = parts[name] = (media_type(headers.get(b"content-type")) or None, bytearray())
@@ -79,6 +77,4 @@ async def read_parts(request, names):
         raise FormError(f"Malformed multipart body: {error}") from error
     if not finished:
         raise FormError("Incomplete multipart body: missing the closing boundary")
-    if missing := [name for name in names if name not in parts]:
-        raise FormError(f"Missing part {missing[0]!r}")
     return parts

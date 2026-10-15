@@ -4,16 +4,19 @@ import asyncio
 import io
 import json
 import os
-from collections.abc import Mapping
-from typing import Protocol
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Literal, Protocol
 
 import httpx2
 import pyarrow as pa
-from typesafe_sdk import JSONContent, Question
+from typesafe_sdk import Content, Image, Question
 
 from ._async_transport import AsyncTransport
 
 MEDIA_TYPE = "application/vnd.apache.arrow.stream"
+# Labels for image parts; the API detects each image's format from its bytes.
+_IMAGE_TYPES = {b"\x89PNG\r\n\x1a\n": "image/png", b"\xff\xd8\xff": "image/jpeg"}
 _MISSING = object()
 _END = object()
 
@@ -39,6 +42,63 @@ def _arrow_states(data):
     if not rows:
         raise ValueError("Arrow states must have at least one row")
     return sink.getvalue(), rows
+
+
+class _Images:
+    """Write each Image in request values as its reference, collecting the images to upload."""
+
+    def __init__(self, assets):
+        self.found = {}
+        for name, image in (assets or {}).items():
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("Asset names must be nonempty strings")
+            if not isinstance(image, Image):
+                raise TypeError(f"Asset {name!r} must be a typesafe_sdk.Image")
+            self.found[name] = image
+
+    def collect(self, value):
+        """Find the images in a question object, which Pydantic writes as their references."""
+        if isinstance(value, Image):
+            self.found.setdefault(str(value), value)
+        elif hasattr(value, "model_dump"):
+            for item in vars(value).values():
+                self.collect(item)
+        elif isinstance(value, Mapping):
+            for item in value.values():
+                self.collect(item)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                self.collect(item)
+
+    def default(self, value):
+        """json.dumps calls this only for values that aren't plain JSON."""
+        if isinstance(value, Image):
+            self.found.setdefault(str(value), value)
+            return str(value)
+        if isinstance(value, Mapping):
+            return dict(value)
+        if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+            return list(value)
+        raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+    def encode(self, body):
+        return json.dumps(body, default=self.default, ensure_ascii=False, separators=(",", ":"),
+                          allow_nan=False).encode()
+
+    def parts(self):
+        """The request's assets entries, and a file part for each image."""
+        entries, files = {}, []
+        for number, (name, image) in enumerate(self.found.items()):
+            part = f"asset-{number}"
+            data = image.data
+            data = Path(data).read_bytes() if isinstance(data, os.PathLike) else memoryview(data).tobytes()
+            if not data:
+                raise ValueError(f"Image {name!r} is empty")
+            label = next((kind for signature, kind in _IMAGE_TYPES.items() if data.startswith(signature)),
+                         "application/octet-stream")
+            entries[name] = {"type": "image", "part": part}
+            files.append((part, (part, data, label)))
+        return entries, files
 
 
 class _HTTPInput(io.RawIOBase):
@@ -150,11 +210,13 @@ class TypeSafeClient:
         self._readers = set()
 
     def system_one(
-        self, state: JSONContent = _MISSING,
+        self, state: Content = _MISSING,
         questions: Mapping[str, Question] | None = None, *,
-        states: list[JSONContent] | ArrowStreamExportable = _MISSING,
+        states: list[Content] | ArrowStreamExportable = _MISSING,
         state_column: str | None = None, model: str | None = None,
         rows_per_call: int | None = None,
+        assets: Mapping[str, Image] | None = None,
+        box_format: Literal["typesafe", "geoarrow"] | None = None,
         timeout: float | None = None, extra_headers: Mapping[str, str] | None = None,
     ) -> ArrowReader:
         if (state is _MISSING) == (states is _MISSING):
@@ -169,6 +231,10 @@ class TypeSafeClient:
             raise ValueError("state_column requires Arrow states")
         if not questions:
             raise ValueError("questions must be a nonempty mapping")
+        if box_format not in (None, "typesafe", "geoarrow"):
+            raise ValueError("box_format must be 'typesafe' or 'geoarrow'")
+        images = _Images(assets)
+        images.collect(questions)
         body = {
             "model": model or self.model,
             "questions": {
@@ -178,24 +244,34 @@ class TypeSafeClient:
         }
         if rows_per_call is not None:
             body["rows_per_call"] = rows_per_call
+        if box_format is not None:
+            body["box_format"] = box_format
         headers = {"Accept": MEDIA_TYPE}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         headers.update(extra_headers or {})
         kwargs = {} if timeout is None else {"timeout": timeout}
+        files = []
         if arrow:
-            # Arrow states travel in a multipart form beside the JSON request fields.
             data, expected_rows = _arrow_states(states)
             if state_column is not None:
                 body["state_column"] = state_column
-            kwargs["files"] = {
-                "request": (None, json.dumps(body).encode(), "application/json"),
-                "states": ("states.arrows", data, MEDIA_TYPE),
-            }
+            files.append(("states", ("states.arrows", data, MEDIA_TYPE)))
         else:
             body["state" if states is _MISSING else "states"] = state if states is _MISSING else states
             expected_rows = 1 if states is _MISSING else len(states)
-            kwargs["json"] = body
+        content = images.encode(body)
+        if images.found:
+            # Images travel as file parts that the request's assets name, as TypeSafe accepts them.
+            entries, image_files = images.parts()
+            content = images.encode({**body, "assets": entries})
+            files.extend(image_files)
+        if files:
+            # Arrow states and images travel in a multipart form beside the JSON request fields.
+            kwargs["files"] = [("request", (None, content, "application/json")), *files]
+        else:
+            kwargs["content"] = content
+            headers["Content-Type"] = "application/json"
         request = self._http.build_request(
             "POST", f"{self.base_url}/v1/systemone", headers=headers, **kwargs,
         )
@@ -273,17 +349,20 @@ class AsyncTypeSafeClient:
         self._client = TypeSafeClient(**kwargs, _transport=self._transport)
 
     async def system_one(
-        self, state: JSONContent = _MISSING,
+        self, state: Content = _MISSING,
         questions: Mapping[str, Question] | None = None, *,
-        states: list[JSONContent] | ArrowStreamExportable = _MISSING,
+        states: list[Content] | ArrowStreamExportable = _MISSING,
         state_column: str | None = None, model: str | None = None,
         rows_per_call: int | None = None,
+        assets: Mapping[str, Image] | None = None,
+        box_format: Literal["typesafe", "geoarrow"] | None = None,
         timeout: float | None = None, extra_headers: Mapping[str, str] | None = None,
     ) -> AsyncArrowReader:
         self._transport.bind_loop()
         opening = asyncio.create_task(asyncio.to_thread(
             self._client.system_one, state, questions, states=states, state_column=state_column,
-            model=model, rows_per_call=rows_per_call, timeout=timeout, extra_headers=extra_headers,
+            model=model, rows_per_call=rows_per_call, assets=assets, box_format=box_format,
+            timeout=timeout, extra_headers=extra_headers,
         ))
         try:
             return AsyncArrowReader(await asyncio.shield(opening))

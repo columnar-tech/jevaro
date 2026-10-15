@@ -4,7 +4,10 @@ const { readFileSync } = require("node:fs");
 const { createRequire } = require("node:module");
 const vm = require("node:vm");
 const { tableFromArrays, tableFromIPC, tableToIPC, RecordBatchReader } = require("apache-arrow");
-const { TypeSafeClient, APIError, choice, noul, score } = require("jevaro");
+const { TypeSafeClient, APIError, box, choice, image, Image, noul, score, withAssets } = require("jevaro");
+
+const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2]);
+const JPEG = Uint8Array.from([0xff, 0xd8, 0xff, 3, 4]);
 
 function response(values = [0.12345678901234567]) {
   const bytes = tableToIPC(tableFromArrays({ answer: new Float64Array(values) }), "stream");
@@ -62,6 +65,7 @@ test("official helpers, ESM exports, TypeSafe arguments and native Arrow reader"
   const esm = await import("jevaro");
   assert.equal(esm.TypeSafeClient, TypeSafeClient);
   assert.equal(esm.noul, noul);
+  for (const name of ["box", "image", "Image", "withAssets"]) assert.equal(typeof esm[name], "function", name);
 });
 
 test("a clean but incomplete stream is rejected", async () => {
@@ -153,5 +157,67 @@ test("request validation", async () => {
     { states: tableFromArrays({ text: [] }) }, { states: ["a"], rowsPerCall: 0 },
     { states: ["a"], rowsPerCall: 1.5 }, { states: ["a"], rowsPerCall: "2" }]) {
     await assert.rejects(client.systemOne({ ...input, questions: { n: noul() } }), TypeError);
+  }
+});
+
+test("images are sent as file parts that the request's assets name", async () => {
+  let sent;
+  const client = new TypeSafeClient({ fetch: async (url, options) => { sent = options.body; return response([0.25, 0.75]); } });
+  const photo = image(PNG);
+  const badge = image(new Blob([JPEG], { type: "image/webp" }));
+  const thumb = Image.fromBase64(Buffer.from("other").toString("base64"));
+  const logo = image(PNG.slice(0, 9));
+  // An image from the SDK's ES module build is recognized too.
+  const esmImage = (await import("@typesafe-ai/sdk")).image(JPEG);
+  const reader = await client.systemOne({
+    states: [{ photo }, withAssets`Shelf: ${esmImage}`, "Logo: <logo>"],
+    questions: {
+      mug: box("the mug in `photo`"),
+      same: noul({ question: "Is `photo` the person in `badge`?", badge }),
+      gesture: choice("Which gesture?", { up: thumb, none: null }),
+    },
+    assets: { "<logo>": logo },
+    boxFormat: "geoarrow",
+  });
+  await reader.readAll().catch(() => {});
+  assert.deepEqual([...sent.keys()], ["request", "asset-0", "asset-1", "asset-2", "asset-3", "asset-4"]);
+  const request = JSON.parse(await sent.get("request").text());
+  assert.deepEqual(request.states, [{ photo: String(photo) }, `Shelf: ${esmImage}`, "Logo: <logo>"]);
+  assert.deepEqual(request.questions.mug, { type: "box", instructions: "the mug in `photo`" });
+  assert.equal(request.questions.same.instructions.badge, String(badge));
+  assert.deepEqual(request.questions.gesture.criteria, { up: String(thumb), none: null });
+  assert.equal(request.box_format, "geoarrow");
+  assert.equal(request.boxFormat, undefined);
+  // Named assets first, then images in the order the JSON holds them: questions, then states.
+  const names = ["<logo>", String(badge), String(thumb), String(photo), String(esmImage)];
+  assert.deepEqual(request.assets, Object.fromEntries(names.map((name, i) => [name, { type: "image", part: `asset-${i}` }])));
+  const parts = await Promise.all([0, 1, 2, 3, 4].map(async i => {
+    const part = sent.get(`asset-${i}`);
+    return [part.name, part.type, [...new Uint8Array(await part.arrayBuffer())]];
+  }));
+  assert.deepEqual(parts, [
+    ["asset-0", "image/png", [...PNG.slice(0, 9)]], ["asset-1", "image/jpeg", [...JPEG]],
+    ["asset-2", "application/octet-stream", [...Buffer.from("other")]], ["asset-3", "image/png", [...PNG]],
+    ["asset-4", "image/jpeg", [...JPEG]],
+  ]);
+});
+
+test("images beside an Arrow Table, and JSON without images", async () => {
+  const bodies = [];
+  const client = new TypeSafeClient({ fetch: async (url, options) => { bodies.push(options.body); return response([0.25, 0.75]); } });
+  const mug = image(PNG);
+  const table = tableFromArrays({ text: ["one", "two"] });
+  await (await client.systemOne({ states: table, questions: { kind: choice("Which mug?", { this: mug, none: null }) } })).readAll();
+  assert.deepEqual([...bodies[0].keys()], ["request", "states", "asset-0"]);
+  assert.deepEqual(JSON.parse(await bodies[0].get("request").text()).assets, { [String(mug)]: { type: "image", part: "asset-0" } });
+  await (await client.systemOne({ states: ["one", "two"], questions: { n: noul() }, boxFormat: "typesafe" })).readAll();
+  assert.equal(typeof bodies[1], "string");
+  assert.equal(JSON.parse(bodies[1]).box_format, "typesafe");
+});
+
+test("image request validation", async () => {
+  const client = new TypeSafeClient({ fetch: () => assert.fail("must not fetch") });
+  for (const input of [{ boxFormat: "pixels" }, { assets: { "": image(PNG) } }, { assets: { photo: PNG } }]) {
+    await assert.rejects(client.systemOne({ state: "a", questions: { n: noul() }, ...input }), TypeError);
   }
 });

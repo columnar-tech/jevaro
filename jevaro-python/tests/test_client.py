@@ -1,12 +1,17 @@
 import io
 import json
+import tempfile
 import unittest
 from email.parser import BytesParser
 from email.policy import HTTP
+from pathlib import Path
 
 import httpx2
 import pyarrow as pa
-from jevaro import Noul, TypeSafeClient
+from jevaro import Box, Choice, Image, Noul, TypeSafeClient
+
+PNG = b"\x89PNG\r\n\x1a\npixels"
+JPEG = b"\xff\xd8\xffpixels"
 
 
 def ipc(values):
@@ -129,6 +134,55 @@ class ClientTests(unittest.TestCase):
             reader.read_all()
         self.assertTrue(stream.closed)
 
+    def test_images_are_sent_as_file_parts_named_by_assets(self):
+        client, _ = self.client(values=(0.1, 0.2))
+        photo, badge, thumb = Image(PNG), Image(bytearray(JPEG)), Image(b"other")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "logo.png"
+            path.write_bytes(PNG + b"logo")
+            questions = {
+                "mug": Box(instructions="the mug in `photo`"),
+                "same": Noul(instructions={"question": "Is `photo` the person in `badge`?", "badge": badge}),
+                "gesture": {"type": "choice", "instructions": "Which gesture?", "criteria": {"up": thumb, "none": None}},
+            }
+            with client.system_one(states=[{"photo": photo}, "Logo: <logo>"], questions=questions,
+                                   assets={"<logo>": Image(path)}, box_format="geoarrow") as reader:
+                reader.read_all()
+        parts = form_parts(self.requests[0])
+        self.assertEqual(list(parts), ["request", "asset-0", "asset-1", "asset-2", "asset-3"])
+        request = json.loads(parts["request"][1])
+        self.assertEqual(request["states"], [{"photo": str(photo)}, "Logo: <logo>"])
+        self.assertEqual(request["questions"]["same"]["instructions"]["badge"], str(badge))
+        self.assertEqual(request["questions"]["gesture"]["criteria"], {"up": str(thumb), "none": None})
+        self.assertEqual(request["questions"]["mug"], {"type": "box", "instructions": "the mug in `photo`"})
+        self.assertEqual(request["box_format"], "geoarrow")
+        # Named assets first, then the images in the questions, then those in the states.
+        self.assertEqual(request["assets"], {
+            "<logo>": {"type": "image", "part": "asset-0"}, str(badge): {"type": "image", "part": "asset-1"},
+            str(thumb): {"type": "image", "part": "asset-2"}, str(photo): {"type": "image", "part": "asset-3"},
+        })
+        self.assertEqual([parts[f"asset-{i}"] for i in range(4)], [
+            ("image/png", PNG + b"logo"), ("image/jpeg", JPEG), ("application/octet-stream", b"other"),
+            ("image/png", PNG),
+        ])
+
+    def test_images_with_arrow_states_and_without_images(self):
+        client, _ = self.client(values=(0.1, 0.2))
+        table = pa.table({"photo": [PNG, JPEG]})
+        mug = Image(PNG)
+        questions = {"same": Choice(instructions="Which mug?", criteria={"this": mug, "none": None})}
+        with client.system_one(states=table, questions=questions) as reader:
+            reader.read_all()
+        parts = form_parts(self.requests[0])
+        self.assertEqual(list(parts), ["request", "states", "asset-0"])
+        self.assertEqual(json.loads(parts["request"][1])["assets"], {str(mug): {"type": "image", "part": "asset-0"}})
+        self.assertTrue(pa.ipc.open_stream(parts["states"][1]).read_all().equals(table))
+        client, _ = self.client()
+        with client.system_one(state={"text": "é"}, questions={"answer": Noul()}) as reader:
+            reader.read_all()
+        self.assertEqual(self.requests[0].headers["content-type"], "application/json")
+        self.assertEqual(json.loads(self.requests[0].content)["state"], {"text": "é"})
+
     def test_invalid_arguments(self):
         client, _ = self.client()
         for args in ({}, {"states": []}, {"states": "no"}, {"state": "a", "states": ["b"]},
@@ -137,8 +191,11 @@ class ClientTests(unittest.TestCase):
                      {"states": pa.table({"text": pa.array([], pa.string())})},
                      {"states": pa.chunked_array([[1, 2]])},
                      {"states": ["a"], "rows_per_call": 0}, {"states": ["a"], "rows_per_call": True},
-                     {"states": ["a"], "rows_per_call": 2.0}):
-            with self.assertRaises(ValueError):
+                     {"states": ["a"], "rows_per_call": 2.0},
+                     {"state": "a", "box_format": "pixels"}, {"state": "a", "assets": {"": Image(PNG)}},
+                     {"state": "a", "assets": {"x": PNG}}, {"state": Image(b""), "assets": None},
+                     {"state": object()}):
+            with self.assertRaises((ValueError, TypeError)):
                 client.system_one(**args, questions={"answer": Noul()})
         self.assertEqual(self.requests, [])
 

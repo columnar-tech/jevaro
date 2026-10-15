@@ -33,6 +33,11 @@ def decode_answer(value, kind, metadata):
         }
     if kind == "noul":
         return {"type": kind, "noul": value}
+    if kind == "box":
+        box = value["box"]
+        if "xmin" in box:  # A geoarrow.box, from box_format "geoarrow".
+            box = {"top": box["ymin"], "bottom": box["ymax"], "left": box["xmin"], "right": box["xmax"]}
+        return {"type": kind, "box": box, "confidence": value["confidence"]}
     raise ValueError(f"Unsupported answer type: {kind!r}")
 
 
@@ -46,7 +51,7 @@ def read_rows(path):
                 continue
             info = json.loads(attributes[b"ARROW:extension:metadata"])
             kind = extension.decode().rsplit(".", 1)[-1]
-            if (kind not in ("choice", "score", "noul")
+            if (kind not in ("choice", "score", "noul", "box")
                     or extension not in (f"jev_demo.{kind}".encode(), f"jevaro.{kind}".encode())):
                 raise ValueError(f"Unsupported extension metadata for {field.name!r}")
             metadata[field.name] = kind, info

@@ -15,8 +15,8 @@
   "types": "index.d.ts",
   "exports": { ".": { "types": "./index.d.ts", "default": "./index.cjs" } },
   "files": ["index.cjs", "index.d.ts", "README.md", "example.mjs", "LICENSE", "NOTICE"],
-  "engines": { "node": ">=20.3" },
+  "engines": { "node": ">=22" },
   "scripts": { "test": "node --test test/*.test.cjs", "typecheck": "tsc --noEmit -p test/tsconfig.json" },
-  "dependencies": { "@typesafe-ai/sdk": "0.6.0", "apache-arrow": "21.2.0" },
+  "dependencies": { "@typesafe-ai/sdk": "0.7.0", "apache-arrow": "21.2.0" },
   "devDependencies": { "typescript": "^5.9.0", "@types/node": "^22.0.0" }
 }

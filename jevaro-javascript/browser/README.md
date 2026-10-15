@@ -1,13 +1,14 @@
 # Jevaro browser example
 
-A single [HTML file](index.html) that sends states as editable JSON or as
-Arrow IPC data, with editable JSON questions and an
+A single [HTML file](index.html) that sends states as editable JSON, as
+Arrow IPC data, or as images, with editable JSON questions and an
 [Apache Arrow](https://arrow.apache.org/) result viewer.
 
 Submit a batch to the [Jevaro batching proxy](https://github.com/columnar-tech/jevaro/blob/main/jevaro-server/README.md)
 and watch answers from [Jev](https://docs.typesafe.ai/) arrive in input order.
 Each state becomes a row and each question a column. Expand Choice and Score
-cells for confidence, probabilities, and the Score legend.
+cells for confidence, probabilities, and the Score legend. Box answers are
+drawn on their images.
 Labels and legends come from the Arrow schema metadata.
 
 The script and styles are in the page. It loads `jevaro@0.4.0` and
@@ -37,7 +38,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:3000", "http://localhost:3000"],
     allow_methods=["POST"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "TypeSafe-Danger-Zone-Images"],
 )
 uvicorn.run(app, host="127.0.0.1", port=8000)
 PY
@@ -86,6 +87,19 @@ PY
 Choose `messages.arrows` and click **Submit**. Each state is then
 `{"message": "..."}`. Enter `message` as the state column to send each
 message as a plain string instead.
+
+## Images
+
+Choose **Images**, then choose one or more PNG or JPEG files. Each image
+becomes one state, `{"photo": image}`. The questions change to a sample with a
+Box question, and the model to `jev-preview`, since Box needs Jev 1.14. Click
+**Submit**. Each Box answer is drawn as a rectangle on its image.
+
+Requests with images or Box questions send the
+`TypeSafe-Danger-Zone-Images: true` header, which the CORS wrapper above
+allows. TypeSafe accepts images from 256 to 1,568 pixels on each side; resize
+larger photos first. See [Images](https://docs.typesafe.ai/images) for
+TypeSafe's limits.
 
 The SDK needs a `Table` from the `apache-arrow` version and module it uses.
 The page loads both from one esm.sh module graph so they match; keep their

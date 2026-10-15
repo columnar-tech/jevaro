@@ -46,7 +46,7 @@ jobs:
       fail-fast: false
       matrix:
         python: ['3.11', '3.14']
-        node: ['20.3.0', '24']
+        node: ['22.0.0', '24']
     name: Python ${{ matrix.python }} / Node ${{ matrix.node }}
     steps:
       - uses: actions/checkout@v7
