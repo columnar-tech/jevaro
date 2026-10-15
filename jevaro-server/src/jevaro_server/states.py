@@ -131,6 +131,30 @@ def contains(data_type, kind):
     return False
 
 
+EXTENSION_NAME = b"ARROW:extension:name"
+
+
+def check_extensions(field, path):
+    """Reject binary data under an extension type this reader doesn't know, such as geoarrow.wkb.
+
+    PyArrow reads such a field as its storage type, which would otherwise pass as image files.
+    """
+    name = (field.metadata or {}).get(EXTENSION_NAME)
+    if name is not None and contains(field.type, is_binary):
+        raise StatesError(f"{path} has Arrow extension type {name.decode(errors='replace')}; binary values "
+                          "must be image files")
+    data_type = field.type
+    if types.is_dictionary(data_type):
+        return
+    if types.is_struct(data_type):
+        for child_field in data_type:
+            check_extensions(child_field, child(path, child_field.name))
+    elif is_list(data_type):
+        check_extensions(data_type.value_field, f"{path}[]")
+    elif types.is_map(data_type):
+        check_extensions(data_type.item_field, f"{path}{{}}")
+
+
 class States:
     """Arrow rows as states, converted ROWS_PER_CHUNK rows at a time while iterating.
 
@@ -145,6 +169,9 @@ class States:
         self.images = 0
         if table.num_rows == 0:
             raise StatesError("states must have at least one row")
+        for field in table.schema:
+            if state_column is None or field.name == state_column:
+                check_extensions(field, field.name)
         if state_column is None:
             if table.num_columns == 0:
                 raise StatesError("states must have at least one column")

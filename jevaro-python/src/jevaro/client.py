@@ -45,21 +45,39 @@ def _arrow_states(data):
 
 
 class _Images:
-    """Write each Image in request values as its reference, collecting the images to upload."""
+    """Write each Image in request values as its name in assets, or else its reference, collecting
+    the images to upload."""
 
     def __init__(self, assets):
         self.found = {}
+        self.names = {}
         for name, image in (assets or {}).items():
             if not isinstance(name, str) or not name.strip():
                 raise ValueError("Asset names must be nonempty strings")
             if not isinstance(image, Image):
                 raise TypeError(f"Asset {name!r} must be a typesafe_sdk.Image")
             self.found[name] = image
+            self.names[id(image)] = name
+        # Pydantic writes a named image in a question as its reference; these become its name.
+        self.renames = {str(image): name for name, image in self.found.items()}
+
+    def rename(self, value):
+        """A question's JSON, with each named image's reference replaced by its name."""
+        if not self.renames:
+            return value
+        if isinstance(value, str):
+            return self.renames.get(value, value)
+        if isinstance(value, list):
+            return [self.rename(item) for item in value]
+        if isinstance(value, dict):
+            return {key: self.rename(item) for key, item in value.items()}
+        return value
 
     def collect(self, value):
         """Find the images in a question object, which Pydantic writes as their references."""
         if isinstance(value, Image):
-            self.found.setdefault(str(value), value)
+            if id(value) not in self.names:
+                self.found.setdefault(str(value), value)
         elif hasattr(value, "model_dump"):
             for item in vars(value).values():
                 self.collect(item)
@@ -73,8 +91,11 @@ class _Images:
     def default(self, value):
         """json.dumps calls this only for values that aren't plain JSON."""
         if isinstance(value, Image):
-            self.found.setdefault(str(value), value)
-            return str(value)
+            name = self.names.get(id(value))
+            if name is None:
+                name = str(value)
+                self.found.setdefault(name, value)
+            return name
         if isinstance(value, Mapping):
             return dict(value)
         if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
@@ -238,7 +259,7 @@ class TypeSafeClient:
         body = {
             "model": model or self.model,
             "questions": {
-                name: q.model_dump(mode="json") if hasattr(q, "model_dump") else q
+                name: images.rename(q.model_dump(mode="json")) if hasattr(q, "model_dump") else q
                 for name, q in questions.items()
             },
         }

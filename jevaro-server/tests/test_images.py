@@ -337,3 +337,62 @@ class ImageTests(ServerTestCase):
             {"mug": {"type": "box", "box": {"top": 0.015, "bottom": 0.515, "left": 0.265, "right": 0.765},
                      "confidence": None}},
         ])
+
+    def test_each_call_lists_its_assets_longest_first(self):
+        # TypeSafe matches the reference that assets lists first; img2 must come before img.
+        body = {"state": "see img2 and img", "questions": {"seen": SEEN},
+                "assets": {"img": {"type": None, "format": "png", "data_base64": b64(RED)},
+                           "img2": {"format": "jpg", "data_base64": b64(BLUE)}}}
+        response = self.post(body)
+        self.assertEqual(response.status_code, 200, response.text)
+        (images,) = self.upstream.images
+        self.assertEqual(list(images.items()), [("img2", BLUE), ("img", RED)])
+
+    def test_repeated_danger_zone_headers_send_the_first(self):
+        headers = [("TypeSafe-Danger-Zone-Images", "true"), ("TypeSafe-Danger-Zone-Images", "false")]
+        with httpx2.Client(base_url=self.base_url, headers={"Authorization": "Bearer jevaro-test-key"}) as client:
+            response = client.post("/v1/systemone", json={"state": "a", "questions": {"mug": BOX}}, headers=headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.upstream.headers, [{"typesafe-danger-zone-images": "true"}])
+
+    def test_more_checks_before_upstream(self):
+        frames = pa.table({"frames": [[RED] * 1700]})
+        wkb = pa.field("geom", pa.binary(), metadata={"ARROW:extension:name": "geoarrow.wkb"})
+        shapes = pa.table({"id": [1], "geom": [b"\x01"]}, schema=pa.schema([("id", pa.int64()), wkb]))
+        nested = pa.table({"shape": pa.array([{"geom": b"\x01"}], pa.struct([wkb]))})
+        request = ("request", (None, json.dumps({"questions": {"seen": SEEN}}).encode(), None))
+        cases = [
+            ("TypeSafe allows 65,536 per request", [request, ("states", ("s.arrows", ipc_stream(frames), None))]),
+            ("geom has Arrow extension type geoarrow.wkb", [request, ("states", ("s.arrows", ipc_stream(shapes), None))]),
+            ("shape.geom has Arrow extension type geoarrow.wkb",
+             [request, ("states", ("s.arrows", ipc_stream(nested), None))]),
+        ]
+        for expected, files in cases:
+            with self.subTest(expected):
+                response = self.post_form(files, headers=ON)
+                self.assertEqual(response.status_code, 422, response.text)
+                self.assertIn(expected, response.text)
+        with httpx2.Client(base_url=self.base_url, headers={"Authorization": "Bearer jevaro-test-key", **ON}) as client:
+            content = ('{"state": "x", "questions": {"seen": {"type": "noul", "instructions": "Mug?"}}, '
+                       '"assets": {"\\ud800": {"format": "png", "data_base64": "%s"}}}' % b64(RED))
+            response = client.post("/v1/systemone", content=content, headers={"Content-Type": "application/json"})
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn("is not valid Unicode text", response.text)
+        self.assertEqual(self.upstream.payloads, [])
+        # A state column skips the other columns, extension or not.
+        response = self.post_form([("request", (None, json.dumps({"questions": {"seen": SEEN}, "state_column": "id"
+                                                                   }).encode(), None)),
+                                   ("states", ("s.arrows", ipc_stream(shapes.set_column(0, "id", pa.array(["a"]))), None))],
+                                  headers=ON)
+        self.assertEqual(response.status_code, 200, response.text)
+
+    def test_python_sdk_writes_named_images_by_name(self):
+        photo = Image(RED)
+        questions = {"same": Noul(instructions={"question": "Is `photo` the same as `example`?", "example": photo})}
+        with self.client.system_one(state={"photo": photo}, questions=questions, assets={"<p>": photo},
+                                    extra_headers=ON) as reader:
+            reader.read_all()
+        (payload,), (images,) = self.upstream.payloads, self.upstream.images
+        self.assertEqual(payload["state"], {"photo": "<p>"})
+        self.assertEqual(payload["questions"]["same"]["instructions"]["example"], "<p>")
+        self.assertEqual(images, {"<p>": RED})

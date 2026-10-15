@@ -224,8 +224,8 @@ work. In a browser, `image(file)` sends a file the user chose.
 To send the header with every request, create the client with
 `defaultHeaders: { "TypeSafe-Danger-Zone-Images": "true" }`. Jevaro passes on
 every `TypeSafe-Danger-Zone-*` header, including
-`TypeSafe-Danger-Zone-Long-Context`. `rowsPerCall` can't be used with images
-or Box questions.
+`TypeSafe-Danger-Zone-Long-Context`. `rowsPerCall` above 1 can't be used with
+images or Box questions.
 
 ### Images in Arrow states
 
@@ -269,7 +269,8 @@ await client.systemOne({
 ```
 
 Use names that can't appear in your text by accident. Every name must appear
-in a state, instructions, or criteria.
+in a state, instructions, or criteria. An image in `assets` is written as its
+name wherever you place it, including in `withAssets` text, and uploaded once.
 
 ### Box answers
 

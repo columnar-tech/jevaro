@@ -207,10 +207,13 @@ class Plan:
             raise HTTPException(422, "rows_per_call above 1 can't be used with images or Box questions: "
                                      "packing would send each row's images again with every question.")
 
-    def check_row(self):
-        """A function that checks one state before streaming, or None when no check is needed."""
+    def check_row(self, arrow=False):
+        """A function that checks one state before streaming, or None when no check is needed.
+
+        Arrow states can generate references of their own, so they always check images.
+        """
         packing = self.templates and state_checker(self.templates)
-        images = self.images if self.images.images else None
+        images = self.images if self.images.images or arrow else None
         if not (packing or images):
             return None
 
@@ -234,7 +237,7 @@ class Plan:
     async def read_arrow_states(self, data, state_column):
         try:
             # Checking every row can take seconds for a large table; keep the event loop free.
-            states = await asyncio.to_thread(read_states, data, state_column, self.check_row())
+            states = await asyncio.to_thread(read_states, data, state_column, self.check_row(arrow=True))
         except (StatesError, PackingError, ImageError) as error:
             raise HTTPException(422, str(error)) from error
         self.generated = states.images > 0

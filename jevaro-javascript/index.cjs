@@ -14,14 +14,22 @@ const IMAGE_TYPES = [["image/png", [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x
 
 const isImage = value => typeof value === "object" && value !== null && (IMAGE in value || value instanceof Image);
 
-// JSON for the request, with each image written as its reference. `found` collects the
-// images, by reference, from the request's content and from `withAssets` text.
-function encodeRequest(json, found) {
+// JSON for the request, with each image written as its name in `names`, or else its reference,
+// as the TypeSafe SDK writes them. `found` collects the images without names, by reference,
+// from the request's content and from `withAssets` text.
+function encodeRequest(json, found, names) {
   return JSON.stringify(json, function (key, value) {
     const original = this[key];
-    if (isImage(original)) found.set(String(original), original);
-    else if (typeof original === "object" && original !== null && TEXT_WITH_ASSETS in original) {
-      for (const asset of original.assets) found.set(String(asset), asset);
+    if (isImage(original)) {
+      if (names.has(original)) return names.get(original);
+      found.set(String(original), original);
+    } else if (typeof original === "object" && original !== null && TEXT_WITH_ASSETS in original) {
+      let text = original.text;
+      for (const asset of original.assets) {
+        if (names.has(asset)) text = text.replaceAll(String(asset), names.get(asset));
+        else found.set(String(asset), asset);
+      }
+      return text;
     }
     return value;
   });
@@ -87,10 +95,12 @@ class TypeSafeClient {
       throw new TypeError('boxFormat must be "typesafe" or "geoarrow"');
     }
     const images = new Map();
+    const names = new Map();
     for (const [name, asset] of Object.entries(request.assets ?? {})) {
       if (!name.trim()) throw new TypeError("Asset names must be nonempty strings");
       if (!isImage(asset)) throw new TypeError(`Asset "${name}" must be an image from image() or Image.fromBase64()`);
       images.set(name, asset);
+      names.set(asset, name);
     }
     const expectedRows = arrow ? request.states.numRows : plural ? request.states.length : 1;
     const timeout = options.timeout ?? this.timeout;
@@ -114,7 +124,7 @@ class TypeSafeClient {
       if (stateColumn !== undefined) json.state_column = stateColumn;
       if (rowsPerCall !== undefined) json.rows_per_call = rowsPerCall;
       if (boxFormat !== undefined) json.box_format = boxFormat;
-      let payload = encodeRequest(json, images);
+      let payload = encodeRequest(json, images, names);
       if (arrow || images.size) {
         // Arrow states and images travel in a multipart form beside the JSON request fields.
         // fetch sets the multipart Content-Type, including its boundary.
@@ -128,7 +138,7 @@ class TypeSafeClient {
             json.assets[name] = { type: "image", part };
             parts.push([part, await imageBlob(asset.data)]);
           }
-          payload = encodeRequest(json, new Map());
+          payload = encodeRequest(json, new Map(), names);
         }
         const form = new FormData();
         form.append("request", new Blob([payload], { type: "application/json" }));

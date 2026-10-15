@@ -205,7 +205,7 @@ a path, bytes, `Image.from_base64()`, or `Image.from_pil()`.
 To send the header with every request, create the client with
 `headers={"TypeSafe-Danger-Zone-Images": "true"}`. Jevaro passes on every
 `TypeSafe-Danger-Zone-*` header, including `TypeSafe-Danger-Zone-Long-Context`.
-`rows_per_call` can't be used with images or Box questions.
+`rows_per_call` above 1 can't be used with images or Box questions.
 
 ### Images in Arrow states
 
@@ -246,7 +246,8 @@ with client.system_one(
 ```
 
 Use names that can't appear in your text by accident. Every name must appear
-in a state, instructions, or criteria.
+in a state, instructions, or criteria. An image in `assets` is written as its
+name wherever you place it, and uploaded once.
 
 ### Box answers
 

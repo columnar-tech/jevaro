@@ -33,7 +33,7 @@ class Asset(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    type: Literal["image"] = "image"
+    type: Literal["image"] | None = "image"
     part: str | None = Field(default=None, min_length=1)
     data_base64: str | None = None
     format: Literal["png", "jpg", "jpeg"] | None = None
@@ -48,8 +48,12 @@ class Asset(BaseModel):
 
 
 def forwarded_headers(headers):
-    """The request's TypeSafe-Danger-Zone-* headers, to send upstream unchanged."""
-    return {name: value for name, value in headers.items() if name.lower().startswith(DANGER_ZONE)}
+    """The request's TypeSafe-Danger-Zone-* headers, to send upstream unchanged; the first of repeats."""
+    forwarded = {}
+    for name, value in headers.items():
+        if name.lower().startswith(DANGER_ZONE):
+            forwarded.setdefault(name.lower(), value)
+    return forwarded
 
 
 def images_enabled(headers):
@@ -59,7 +63,11 @@ def images_enabled(headers):
 def check_reference(reference):
     if not reference.strip():
         raise ImageError("An asset reference can't be empty or only whitespace")
-    if len(reference.encode()) > MAX_REFERENCE_BYTES:
+    try:
+        size = len(reference.encode())
+    except UnicodeEncodeError as error:
+        raise ImageError(f"Asset reference {reference[:40]!r} is not valid Unicode text") from error
+    if size > MAX_REFERENCE_BYTES:
         raise ImageError(f"Asset reference {reference[:40]!r}... is over {MAX_REFERENCE_BYTES} bytes")
 
 
@@ -175,9 +183,14 @@ class Images:
             raise ImageError(f"Asset {unused[0]!r} is not referenced in any state, instructions, or criteria")
 
     def for_state(self, state, generated):
-        """The assets for one upstream call, by reference, or None if it sends no images."""
+        """The assets for one upstream call, by reference, or None if it sends no images.
+
+        Where references start at the same place, TypeSafe matches the one that
+        `assets` lists first. Listing them longest first makes it match the one
+        that Jevaro found.
+        """
         found = {}
         self.references.find(state, found, generated)
         assets = {**self.shared, **{reference: self.images[reference] for reference in found}}
         assets.update((reference, Image(data)) for reference, data in generated.items())
-        return assets or None
+        return dict(sorted(assets.items(), key=lambda item: -len(item[0]))) or None

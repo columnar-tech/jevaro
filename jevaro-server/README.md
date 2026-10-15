@@ -104,7 +104,8 @@ With `"box_format": "geoarrow"`, the edges are a `geoarrow.box`.
 
 Each upstream call carries only the images that its state and the questions
 refer to. Requests with images or Box questions need the
-`TypeSafe-Danger-Zone-Images: true` header, and can't use `rows_per_call`.
+`TypeSafe-Danger-Zone-Images: true` header, and can't use `rows_per_call`
+above 1.
 
 Jevaro forwards every `TypeSafe-Danger-Zone-*` request header to TypeSafe
 with each upstream call, including `TypeSafe-Danger-Zone-Long-Context: true`.

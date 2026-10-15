@@ -166,6 +166,21 @@ class ClientTests(unittest.TestCase):
             ("image/png", PNG),
         ])
 
+    def test_a_named_image_is_written_by_its_name_and_sent_once(self):
+        client, _ = self.client()
+        photo = Image(PNG)
+        questions = {"same": Noul(instructions={"question": "Same as `example`?", "example": photo}),
+                     "raw": {"type": "noul", "instructions": {"example": photo}}}
+        with client.system_one(state={"photo": photo}, questions=questions, assets={"<p>": photo}) as reader:
+            reader.read_all()
+        parts = form_parts(self.requests[0])
+        self.assertEqual(list(parts), ["request", "asset-0"])
+        request = json.loads(parts["request"][1])
+        self.assertEqual(request["state"], {"photo": "<p>"})
+        self.assertEqual(request["questions"]["same"]["instructions"]["example"], "<p>")
+        self.assertEqual(request["questions"]["raw"]["instructions"]["example"], "<p>")
+        self.assertEqual(request["assets"], {"<p>": {"type": "image", "part": "asset-0"}})
+
     def test_images_with_arrow_states_and_without_images(self):
         client, _ = self.client(values=(0.1, 0.2))
         table = pa.table({"photo": [PNG, JPEG]})

@@ -221,3 +221,19 @@ test("image request validation", async () => {
     await assert.rejects(client.systemOne({ state: "a", questions: { n: noul() }, ...input }), TypeError);
   }
 });
+
+test("an image in assets is written by its name wherever it appears, and sent once", async () => {
+  let sent;
+  const client = new TypeSafeClient({ fetch: async (url, options) => { sent = options.body; return response(); } });
+  const photo = image(PNG);
+  await (await client.systemOne({
+    state: { photo, caption: withAssets`See ${photo}.` },
+    questions: { same: noul({ question: "Same as `example`?", example: photo }) },
+    assets: { "<p>": photo },
+  })).readAll();
+  assert.deepEqual([...sent.keys()], ["request", "asset-0"]);
+  const request = JSON.parse(await sent.get("request").text());
+  assert.deepEqual(request.state, { photo: "<p>", caption: "See <p>." });
+  assert.equal(request.questions.same.instructions.example, "<p>");
+  assert.deepEqual(request.assets, { "<p>": { type: "image", part: "asset-0" } });
+});

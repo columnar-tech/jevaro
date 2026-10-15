@@ -171,7 +171,8 @@ format is rejected.
 The server checks the API key before reading the body. It then reads the whole
 upload and converts every row once, so a bad row causes a 422 before streaming
 starts. The upload stays in memory as Arrow data. Rows are converted again,
-1,024 at a time, as upstream calls start.
+1,024 at a time, or 32 at a time for a table with binary values, as upstream
+calls start.
 
 ## Images and Box questions
 
@@ -335,18 +336,24 @@ request uses a new random prefix. With `"state_column": "photo"`, the state is
 the image alone, so write instructions such as `"the coffee mug"`.
 
 Binary values work anywhere in a row. A list of binary values becomes an array
-of references, and a binary field of a struct becomes a reference in its
-object. A null stays `null`. A request can also name images for its questions
-in `assets` and send them as file parts beside the `states` part.
+of references, and a binary field of a struct or a binary map value becomes a
+reference in its object. A null stays `null`. Map keys can't be binary, since
+JSON object keys are strings. A binary column with an Arrow extension type,
+such as `geoarrow.wkb`, is rejected rather than read as images. A request can
+also name images for its questions in `assets` and send them as file parts
+beside the `states` part.
 
 ### Which images each call sends
 
 Images that the questions refer to go with every upstream call. Images that a
 state refers to go only with that state's call. Jevaro finds references the
 way TypeSafe does: a string that is exactly a reference, then references
-inside longer strings, from left to right. Object keys, such as Choice
-options, are never references. Use references that can't appear in your text
-by accident, such as `<image:...>` or a UUID.
+inside longer strings, from left to right. Where several start at the same
+place, such as `img` and `img2`, Jevaro matches the longest. TypeSafe matches
+the one that `assets` lists first, so Jevaro lists each call's assets longest
+first. Object keys, such as Choice options, are never references. Use
+references that can't appear in your text by accident, such as `<image:...>`
+or a UUID.
 
 Every asset must be referenced somewhere, as TypeSafe requires. Jevaro doesn't
 compress the bodies of upstream calls with images, since image files are
@@ -366,7 +373,7 @@ Jevaro returns 422 before any upstream call for:
   name, a part that no asset names, or an image part with another Content-Type
 - A reference that is empty, only whitespace, or over 1,024 bytes, or the
   references of one call totaling over 65,536 bytes
-- An empty binary value
+- An empty binary value, or binary values under an Arrow extension type
 
 Jevaro passes image files to TypeSafe unchanged. TypeSafe checks their
 contents: PNG or JPEG, at least 256 and at most 1,568 pixels on each side,
