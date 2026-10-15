@@ -11,7 +11,7 @@ cells for confidence, probabilities, and the Score legend. Box answers are
 drawn on their images.
 Labels and legends come from the Arrow schema metadata.
 
-The script and styles are in the page. It loads `jevaro@0.4.0` and
+The script and styles are in the page. It loads `jevaro@0.5.0` and
 `apache-arrow@21.2.0` from [esm.sh](https://esm.sh/); no build step is needed.
 
 ## Run

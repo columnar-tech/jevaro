@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.5.0 — 2026-10-15
+
+All three packages are released at `0.5.0`. They support the
+[dreamer-ready](https://docs.typesafe.ai/images) features of Jev 1.14: images
+and Box questions.
+
+- The server accepts Box questions, which find where something is in an
+  image. Each answer is a `jevaro.box` column: the box's `top`, `bottom`,
+  `left`, and `right` edges, as fractions of the image's height and width,
+  and a confidence that may be null. With `"box_format": "geoarrow"`, the
+  edges are a `geoarrow.box`. Box needs `jev-preview` or `jev-1.14.0`.
+- States, instructions, and criteria can include images: base64 in `assets`,
+  file parts of a multipart request, or binary values in Arrow states. Each
+  upstream call carries only the images that its state and questions use.
+  - In a live test, 2,000 small generated PNGs, each with a Box and a Noul
+    question, streamed at 1,130 images per second. Box edges were within 0.01
+    of the drawn rectangles at the median.
+- The server forwards every `TypeSafe-Danger-Zone-*` request header to
+  TypeSafe, including `TypeSafe-Danger-Zone-Long-Context`. Requests with
+  images or Box questions need `TypeSafe-Danger-Zone-Images: true` and can't
+  use `rows_per_call` above 1; the server rejects them with 422 before any
+  upstream call, as it does unreferenced or malformed assets.
+- The Python SDK accepts `Image` objects in states and questions, plus
+  `assets` and `box_format`, and re-exports `Box` and `Image`.
+- The JavaScript SDK accepts `image()` objects and `withAssets` text, plus
+  `assets` and `boxFormat`, and re-exports `box`, `image`, `Image`, and
+  `withAssets`.
+- Breaking: the JavaScript SDK requires Node.js 22 or newer, as
+  `@typesafe-ai/sdk` 0.7.0 does.
+- The Python packages use `typesafe-sdk` 0.7.5, which compresses upstream
+  request bodies of 1 KiB or more with zstd. This shrinks packed calls, whose
+  states repeat in every question. In back-to-back live tests of a
+  10,000-state job with `rows_per_call: 64`, it ran 1.7 times as fast as 0.4.0
+  over a slower connection, and about the same on 1 Gb/s fiber. Throughput
+  with one state per call was unchanged.
+- The browser example can send images, and draws each Box on its image.
+- `read_results.py` decodes Box answers, and the live smoke test asks a Box
+  question about a generated image through each SDK.
+
 ## 0.4.0 — 2026-10-05
 
 All three packages are released at `0.4.0`.
