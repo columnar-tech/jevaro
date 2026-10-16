@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 — 2026-10-15
+## 0.5.0 — 2026-10-16
 
 All three packages are released at `0.5.0`. They support the
 [dreamer-ready](https://docs.typesafe.ai/images) features of Jev 1.14: images
