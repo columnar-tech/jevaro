@@ -248,6 +248,34 @@ the release code before the version bump.
 The source tag and tested archives are in the
 [v0.4.0 GitHub release](https://github.com/columnar-tech/jevaro/releases/tag/v0.4.0).
 
+## 0.5.0
+
+All three packages were published on 2026-10-16:
+[Python SDK](https://pypi.org/project/jevaro/0.5.0/),
+[server](https://pypi.org/project/jevaro-server/0.5.0/), and
+[JavaScript SDK](https://www.npmjs.com/package/jevaro/v/0.5.0).
+This release supports the images and Box questions of Jev 1.14, and forwards
+`TypeSafe-Danger-Zone-*` headers to TypeSafe. The JavaScript SDK now requires
+Node.js 22 or newer.
+
+The [PyPI workflow](https://github.com/columnar-tech/jevaro/actions/runs/38936672940)
+and the [npm workflow](https://github.com/columnar-tech/jevaro/actions/runs/38936990448)
+both published from `92412ff45509a1dd5ea019e0105a538c01a512a5`. npm served the
+new version about a minute after accepting the upload.
+
+All four compatibility jobs passed in each workflow, on Node 22.0.0 and 24.
+Fresh installs from both registries passed the SDK, TypeScript, HTTP, and
+saved-file checks on Python 3.11 and 3.14. Published READMEs match the source;
+all Python SHA-256 hashes and the npm archive's SHA-512 and SHA-1 hashes match
+the tested files. The browser example passed its Chrome check with
+`jevaro@0.5.0` from esm.sh, including sending images and drawing Box answers.
+API responses were simulated for these checks. The paid live smoke test,
+which asks a Box question about a generated image through each SDK, passed on
+the release code before the version bump.
+
+The source tag and tested archives are in the
+[v0.5.0 GitHub release](https://github.com/columnar-tech/jevaro/releases/tag/v0.5.0).
+
 ## References checked for this plan
 
 - [PyPA: packaging projects and distribution metadata](https://packaging.python.org/en/latest/tutorials/packaging-projects/)
