@@ -20,6 +20,17 @@ characters, with three questions: a Choice, a Score, and a Noul. The first
 the state by path; it comes from
 [`experiments/state-packing`](../../experiments/state-packing/README.md).
 
+States go to Jevaro as a JSON list unless you pass `--input arrow`. Then they
+go as an Arrow IPC stream, as messages in one string column named by
+`state_column`, or as tickets with one column per key. Only Arrow input passes
+through the server's `read_states`, and the report gives its time in
+`read_states_ms`:
+
+```sh
+.venv/bin/python benchmarks/rows-per-call/bench.py --fake --rows 100000 --rows-per-call 64 --concurrency 512 --connections 4 --input arrow
+# "read_states_ms": [77.6]: reading, validating, and checking all 100,000 states before streaming
+```
+
 ## Results against the TypeSafe API
 
 All runs used `jev-1.13.0` on 2026-10-05, on one account.

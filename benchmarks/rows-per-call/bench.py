@@ -98,6 +98,15 @@ def wait_for_port(port, process, timeout=30):
             time.sleep(0.05)
 
 
+def arrow_states(data):
+    """(table, state_column): messages as one string column; structured states as one column per key."""
+    import pyarrow as pa
+
+    if isinstance(data[0], str):
+        return pa.table({"message": data}), "message"
+    return pa.Table.from_pylist(data), None
+
+
 def serve(port, stats_path, concurrency, connections, verify):
     """Server process: Jevaro with a transport that counts upstream calls."""
     import asyncio
@@ -105,9 +114,21 @@ def serve(port, stats_path, concurrency, connections, verify):
     import httpx2
     import uvicorn
 
+    import jevaro_server.app
     from jevaro_server.app import create_app
 
-    stats = {"statuses": Counter(), "latencies": [], "tokens": 0, "active": 0, "peak": 0, "area": 0.0, "timeline": []}
+    stats = {"statuses": Counter(), "latencies": [], "tokens": 0, "active": 0, "peak": 0, "area": 0.0, "timeline": [],
+             "read_states_ms": []}
+    read_states = jevaro_server.app.read_states
+
+    def timed_read_states(*args, **kwargs):  # Time reading and checking Arrow states.
+        started = time.perf_counter()
+        try:
+            return read_states(*args, **kwargs)
+        finally:
+            stats["read_states_ms"].append((time.perf_counter() - started) * 1000)
+
+    jevaro_server.app.read_states = timed_read_states
     clock = {"last": None, "first": None}
 
     def tick():
@@ -153,7 +174,8 @@ def serve(port, stats_path, concurrency, connections, verify):
             "cpu_seconds": times.user + times.system,
             "statuses": stats["statuses"], "latencies": stats["latencies"], "tokens": stats["tokens"],
             "peak_in_flight": stats["peak"], "mean_in_flight": stats["area"] / span if span else 0,
-            "timeline": stats["timeline"],
+            "timeline": stats["timeline"], "read_states_ms": stats["read_states_ms"],
+            "server_source": jevaro_server.app.__file__,
         }))
         server.should_exit = True
 
@@ -177,6 +199,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--rows", type=int, default=10_000)
     parser.add_argument("--workload", choices=["messages", "tickets"], default="messages")
+    parser.add_argument("--input", choices=["json", "arrow"], default="json",
+                        help="send states as a JSON list, or as an Arrow IPC stream in a multipart form")
     parser.add_argument("--rows-per-call", type=int, default=1)
     parser.add_argument("--concurrency", type=int, default=256, help="JEVARO_CONCURRENCY")
     parser.add_argument("--connections", type=int, default=1, help="JEVARO_UPSTREAM_CONNECTIONS")
@@ -190,8 +214,11 @@ def main():
         return serve(int(port), stats_path, int(concurrency), int(connections), verify or None)
 
     label = args.label or (f"{'fake' if args.fake else 'live'}_{args.workload}_r{args.rows}_b{args.rows_per_call}"
-                           f"_c{args.concurrency}_x{args.connections}")
+                           f"_c{args.concurrency}_x{args.connections}{'_arrow' if args.input == 'arrow' else ''}")
     data, questions = workload(args.workload, args.rows)
+    state_column = None
+    if args.input == "arrow":
+        data, state_column = arrow_states(data)
     processes = []
     with tempfile.TemporaryDirectory(prefix="jevaro-bench-") as scratch:
         env = dict(os.environ)
@@ -225,7 +252,7 @@ def main():
             with TypeSafeClient(api_key=env["TYPESAFE_API_KEY"], base_url=f"http://127.0.0.1:{port}",
                                 timeout=600) as client:
                 try:
-                    with client.system_one(states=data, questions=questions,
+                    with client.system_one(states=data, questions=questions, state_column=state_column,
                                            rows_per_call=args.rows_per_call) as reader:
                         for batch in reader:
                             if batch.num_rows and first_answer is None:
@@ -249,6 +276,8 @@ def main():
         "label": label,
         "upstream": "fake" if args.fake else "typesafe",
         "workload": args.workload,
+        "input": args.input,
+        "server_source": served["server_source"],
         "rows_requested": args.rows,
         "rows": rows,
         "error": error,
@@ -258,6 +287,7 @@ def main():
         "wall_seconds": round(elapsed, 2),
         "rows_per_second": round(rows / elapsed, 1),
         "first_answer_seconds": round(first_answer, 2) if first_answer is not None else None,
+        "read_states_ms": [round(ms, 1) for ms in served["read_states_ms"]],
         "upstream_calls": sum(served["statuses"].values()),
         "upstream_statuses": served["statuses"],
         "upstream_latency_ms": {"p50": percentile(latencies, 0.5), "p90": percentile(latencies, 0.9),
