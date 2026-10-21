@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -38,6 +39,17 @@ def ipc_stream(table, max_chunksize=None):
     with pa.ipc.new_stream(sink, table.schema) as writer:
         writer.write_table(table, max_chunksize=max_chunksize)
     return sink.getvalue()
+
+
+def corrupt_offsets(bad):
+    """A valid string IPC stream whose [0, 5, 10] offset buffer is replaced with `bad`.
+
+    read_all() alone accepts these; only a full buffer validation catches them.
+    """
+    stream = ipc_stream(pa.table({"text": ["hello", "world"]}))
+    good = struct.pack("<3i", 0, 5, 10)
+    assert stream.count(good) == 1, "offset buffer not found in the stream"
+    return stream.replace(good, struct.pack("<3i", *bad))
 
 
 def form(states, request=None):
@@ -508,6 +520,11 @@ class ProxyTests(ServerTestCase):
             ("states part must be", {**form(good), "states": ("s.csv", b"text\na\n", "text/csv")}),
             ("not a valid Arrow IPC stream", form(b"not arrow")),
             ("Invalid flatbuffers message", form(b"\xff\xff\xff\xff\x10\x00\x00\x00" + b"\x01" * 16)),
+            # Crafted offset buffers that read_all() accepts but would otherwise read out
+            # of bounds or abort the worker during conversion.
+            ("non-monotonic offset", form(corrupt_offsets([0, 8, 3]))),
+            ("larger than values array", form(corrupt_offsets([0, 5, 1_000_000]))),
+            ("Negative offsets", form(corrupt_offsets([-4, 5, 10]))),
             ("IPC file format", form(file_format.getvalue())),
             ("at least one row", form(pa.table({"text": pa.array([], pa.string())}))),
             ("score contains NaN", form(pa.table({"score": [0.5, float("nan")]}))),

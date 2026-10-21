@@ -169,10 +169,12 @@ format is rejected.
 ### Validation and memory
 
 The server checks the API key before reading the body. It then reads the whole
-upload and converts every row once, so a bad row causes a 422 before streaming
-starts. The upload stays in memory as Arrow data. Rows are converted again,
-1,024 at a time, or 32 at a time for a table with binary values, as upstream
-calls start.
+upload and validates its buffers in full before reading any value, so a stream
+with out-of-bounds or non-monotonic offsets is a 422 rather than a wrong read or
+a crash. It converts every row once, so a bad row also causes a 422 before
+streaming starts. The upload stays in memory as Arrow data. Rows are converted
+again, 1,024 at a time, or 32 at a time for a table with binary values, as
+upstream calls start.
 
 ## Images and Box questions
 
