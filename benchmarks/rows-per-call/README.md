@@ -69,6 +69,21 @@ out, and the stream failed after 11,968 states. The server now cuts the calls
 in flight when TypeSafe returns 429 or 529. The same run then completed, at
 about 2,000 states per second.
 
+**Adapting wasn't enough on its own.** On 2026-10-21, 2 of 7 runs of 100,000
+states with 64 rows per call, at concurrency 256 over 4 connections, still
+aborted, at 67,136 and 58,304 states. TypeSafe rejected 33–40% of all
+attempts, each with a `retry-after-ms` of 800 to 1,200. About 30% of retries
+were rejected again, so among the 1,563 calls of a run, one now and then drew
+6 rejections in a row and used up the SDK's 5 retries. Successes never paused
+for more than about a second, so TypeSafe was pacing these runs, not blocking
+them.
+
+The server now sends a call that gets 429 or 529 again itself, for as long
+as other calls with the key succeed. With `JEVARO_MAX_RETRIES=0`, the old
+server aborted after 4,416 states. The new one completed at 2,258 states per
+second, and at 2,378 with the default of 5 retries. Up to 41% of attempts
+were rejected, and some calls 5 times.
+
 **Long states with many questions don't gain.** Each question carries its own
 copy of the state, so the tickets used 1.8 times the tokens per state. The
 packed run finished faster only by spending TypeSafe's burst allowance. At
@@ -78,8 +93,20 @@ against 460 for one state per call.
 ## Results against the local fake
 
 The fake allows 100 calls at a time per HTTP/2 connection, and has no rate
-limit. Each call takes 165 ms plus 0.74 ms per question, varied by a
-lognormal factor with σ = 0.3, which roughly matches TypeSafe's latency.
+limit unless you pass `--fake-rate-limit BURST,TOKENS_PER_SECOND`. Each call
+takes 165 ms plus 0.74 ms per question, varied by a lognormal factor with
+σ = 0.3, which roughly matches TypeSafe's latency.
+
+With a rate limit, input tokens come from a token bucket. A call that finds
+too few tokens gets a 429 after 35 ms, with a `retry-after-ms` of 800 to 1,200,
+as TypeSafe's do. The fake rejects fewer attempts than TypeSafe for the same
+bucket. With `--fake-rate-limit 300000,700000`, it rejects about 20%, and 1
+retry ends the old server's stream:
+
+```sh
+JEVARO_MAX_RETRIES=1 .venv/bin/python benchmarks/rows-per-call/bench.py --fake --fake-rate-limit 300000,700000 --rows 100000 --rows-per-call 64 --concurrency 256 --connections 4
+# Before 2026-10-21: "rows": 768, "error": "RemoteProtocolError(...)"; now "rows": 100000, about 2,300 per second
+```
 
 | Run | States | Rows per call | Concurrency | Connections | States/s | Server CPU |
 | --- | --- | --- | --- | --- | --- | --- |

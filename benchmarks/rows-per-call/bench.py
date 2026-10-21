@@ -12,6 +12,7 @@ Results go to benchmarks/rows-per-call/results/<label>.json (gitignored).
 """
 
 import argparse
+import hashlib
 import json
 import os
 import signal
@@ -118,7 +119,7 @@ def serve(port, stats_path, concurrency, connections, verify):
     from jevaro_server.app import create_app
 
     stats = {"statuses": Counter(), "latencies": [], "tokens": 0, "active": 0, "peak": 0, "area": 0.0, "timeline": [],
-             "read_states_ms": []}
+             "read_states_ms": [], "rejections": []}
     read_states = jevaro_server.app.read_states
 
     def timed_read_states(*args, **kwargs):  # Time reading and checking Arrow states.
@@ -158,7 +159,14 @@ def serve(port, stats_path, concurrency, connections, verify):
             stats["latencies"].append((time.monotonic() - started) * 1000)
             tokens = json.loads(body)["usage"]["input_tokens"] if response.status_code == 200 else 0
             stats["tokens"] += tokens
-            stats["timeline"].append((round(started, 3), round(time.monotonic(), 3), response.status_code, tokens))
+            if response.status_code != 200 and len(stats["rejections"]) < 5:
+                stats["rejections"].append({"status": response.status_code, "headers": dict(response.headers),
+                                            "body": body.decode(errors="replace")[:500]})
+            # Retries of one call share its body, so a digest of the body identifies the call.
+            stats["timeline"].append((round(started, 3), round(time.monotonic(), 3), response.status_code, tokens,
+                                      hashlib.blake2b(request.content, digest_size=6).hexdigest(),
+                                      int(request.headers.get("x-typesafe-retry-count", 0)),
+                                      response.headers.get("retry-after-ms")))
             return response
 
     def transport():
@@ -174,7 +182,7 @@ def serve(port, stats_path, concurrency, connections, verify):
             "cpu_seconds": times.user + times.system,
             "statuses": stats["statuses"], "latencies": stats["latencies"], "tokens": stats["tokens"],
             "peak_in_flight": stats["peak"], "mean_in_flight": stats["area"] / span if span else 0,
-            "timeline": stats["timeline"], "read_states_ms": stats["read_states_ms"],
+            "timeline": stats["timeline"], "read_states_ms": stats["read_states_ms"], "rejections": stats["rejections"],
             "server_source": jevaro_server.app.__file__,
         }))
         server.should_exit = True
@@ -206,6 +214,8 @@ def main():
     parser.add_argument("--connections", type=int, default=1, help="JEVARO_UPSTREAM_CONNECTIONS")
     parser.add_argument("--fake", action="store_true", help="use the local fake instead of the TypeSafe API")
     parser.add_argument("--fake-latency", default="165,0.74,0.3", help="BASE_MS,PER_QUESTION_MS,SPREAD")
+    parser.add_argument("--fake-rate-limit", metavar="BURST,TOKENS_PER_SECOND",
+                        help="give the fake a token bucket of input tokens, e.g. 4000000,700000")
     parser.add_argument("--label")
     parser.add_argument("--serve", nargs=5, help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -230,7 +240,9 @@ def main():
                            check=True, capture_output=True)
             fake_port = free_port()
             fake = subprocess.Popen(["node", str(HERE / "fake_typesafe.cjs"), str(fake_port), scratch,
-                                     *args.fake_latency.split(",")], stdout=subprocess.DEVNULL)
+                                     *args.fake_latency.split(","),
+                                     *(args.fake_rate_limit.split(",") if args.fake_rate_limit else [])],
+                                    stdout=subprocess.DEVNULL)
             processes.append(fake)
             wait_for_port(fake_port, fake)
             env.update(TYPESAFE_UPSTREAM_URL=f"https://localhost:{fake_port}", TYPESAFE_API_KEY="fake-key")
@@ -301,7 +313,9 @@ def main():
         "server_cpu_share": round(served["cpu_seconds"] / elapsed, 2),
         "client_cpu_share": round(client_cpu / elapsed, 2),
         "batches": len(sizes),
-        "timeline": served["timeline"],  # (start, end, status, input tokens) per upstream attempt
+        "rejections": served["rejections"],  # The first few non-200 responses, with headers and body
+        # (start, end, status, input tokens, call, retry number, retry-after-ms) per upstream attempt
+        "timeline": served["timeline"],
     }
     out = HERE / "results"
     out.mkdir(exist_ok=True)
