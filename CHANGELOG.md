@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- The server no longer ends a stream because one upstream call got more 429
+  or 529 responses than `JEVARO_MAX_RETRIES`. It sends such a call again after
+  TypeSafe's `retry-after-ms` for as long as other calls with the same API key
+  succeed. Only after 30 seconds without a success does the response go back
+  to the SDK.
+  - In live runs of 100,000 states with `rows_per_call: 64`, TypeSafe rejected
+    33–40% of attempts, and 2 of 7 runs aborted when one call was rejected 6
+    times in a row. With the fix, runs completed at 2,258 and 2,378 states per
+    second, even with `JEVARO_MAX_RETRIES=0`.
+
 ## 0.5.0 — 2026-10-16
 
 All three packages are released at `0.5.0`. They support the

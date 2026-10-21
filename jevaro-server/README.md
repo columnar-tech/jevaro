@@ -38,7 +38,7 @@ The default address is `http://127.0.0.1:8000`. Change it with `--host` and
 | `TYPESAFE_API_KEY` | Unset | Upstream key when a request has no bearer token |
 | `TYPESAFE_UPSTREAM_URL` | `https://api.typesafe.ai` | Upstream API base URL |
 | `JEVARO_CONCURRENCY` | `512` | Maximum pending calls/results per incoming request; positive integer |
-| `JEVARO_MAX_RETRIES` | `5` | Retries per upstream call after its first attempt; nonnegative integer |
+| `JEVARO_MAX_RETRIES` | `5` | Retries per upstream call after its first attempt, except while TypeSafe returns 429 or 529; nonnegative integer |
 | `JEVARO_UPSTREAM_CONNECTIONS` | `4` | HTTP/2 connections to the TypeSafe API; positive integer |
 
 An incoming `Authorization: Bearer <key>` overrides the server's key and is
@@ -155,9 +155,16 @@ for earlier ones. With `rows_per_call`, concurrency counts upstream calls
 rather than states.
 
 Retries use the official TypeSafe SDK's retry policy with `JEVARO_MAX_RETRIES`
-retries, including backoff for 429 and 529 responses and dropped connections.
-The SDK stops retrying a call after 30 seconds. Concurrency is per incoming
-request.
+retries, including backoff for 5xx responses and dropped connections. The SDK
+stops retrying a call after 30 seconds. Concurrency is per incoming request.
+
+A 429 or 529 from TypeSafe asks for a slower pace, and a large job can get
+hundreds of them. So Jevaro sends such a call again itself, after the
+response's `retry-after-ms`, for as long as other calls with the same API key
+succeed. Only after 30 seconds without a success, or when TypeSafe asks for a
+longer wait, does the response go back to the SDK. For example, a call
+rejected 8 times in a row while other calls succeed still returns its answers,
+with `JEVARO_MAX_RETRIES=5` or even `0`.
 
 Jevaro also adapts to TypeSafe's rate limits for each API key, across all
 requests:

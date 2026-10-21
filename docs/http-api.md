@@ -439,7 +439,8 @@ messages (about 180 characters each):
 
 The sustained rate is set by TypeSafe's input token rate limit for the
 account. A short job runs faster while TypeSafe's burst allowance lasts. When
-TypeSafe returns 429, Jevaro lowers the number of calls in flight.
+TypeSafe returns 429, Jevaro lowers the number of calls in flight and sends the
+rejected call again after TypeSafe's `retry-after-ms`.
 
 **Tradeoffs.**
 
@@ -551,9 +552,12 @@ HTTP connection cancels pending work.
 An invalid upstream API key is detected after the stream starts. It therefore
 causes an aborted stream, rather than a new HTTP 401 response from Jevaro.
 
-The server uses TypeSafe's default SDK retries, including 429 and 529 backoff,
-and lowers the number of calls in flight while TypeSafe returns 429 or 529.
-If retries fail, it stops the stream without null rows or JSON error records.
+The server retries failed upstream calls with TypeSafe's SDK. While TypeSafe
+returns 429 or 529, it lowers the number of calls in flight, and sends each
+rejected call again for as long as other calls with the same API key succeed.
+So rate limits slow a stream but don't stop it, unless no call succeeds for 30
+seconds. If retries fail, it stops the stream without null rows or JSON error
+records.
 The successful Arrow end marker is sent only on normal completion.
 
 Both SDKs propagate read failures and reject a completed stream with the wrong

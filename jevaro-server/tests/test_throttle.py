@@ -6,7 +6,7 @@ import unittest
 import httpx2
 
 from jevaro_server.app import Spread
-from jevaro_server.throttle import Throttle, ThrottledTransport
+from jevaro_server.throttle import Throttle, ThrottledTransport, retry_delay
 
 
 class Clock:
@@ -15,6 +15,13 @@ class Clock:
 
     def __call__(self):
         return self.now
+
+    async def sleep(self, seconds):
+        self.now += seconds
+
+
+async def no_sleep(seconds):
+    pass
 
 
 class ThrottleTests(unittest.TestCase):
@@ -53,6 +60,31 @@ class ThrottleTests(unittest.TestCase):
             throttle.update(status)
         self.assertEqual(throttle.limit, 5.0)
 
+    def test_stalled_once_nothing_succeeds_for_its_patience(self):
+        clock = Clock()
+        throttle = Throttle(10, patience=30, clock=clock)
+        clock.now = 29.9
+        self.assertFalse(throttle.stalled(since=0))
+        clock.now = 30
+        self.assertTrue(throttle.stalled(since=0))
+        # A success restarts the wait for every call; a later call gets its own.
+        clock.now = 25
+        throttle.update(200)
+        clock.now = 50
+        self.assertFalse(throttle.stalled(since=0))
+        clock.now = 55
+        self.assertTrue(throttle.stalled(since=0))
+        self.assertFalse(throttle.stalled(since=40))
+        throttle.update(429)
+        self.assertTrue(throttle.stalled(since=0))
+
+    def test_retry_delay_follows_typesafe_then_backs_off(self):
+        self.assertEqual(retry_delay(httpx2.Headers({"retry-after-ms": "886", "retry-after": "1"}), 0), 0.886)
+        self.assertEqual(retry_delay(httpx2.Headers({"retry-after": "2"}), 0), 2.0)
+        for headers in ({}, {"retry-after": "Wed, 21 Oct 2026 14:15:55 GMT"}, {"retry-after-ms": "-5"}):
+            self.assertTrue(0.375 <= retry_delay(httpx2.Headers(headers), 0) <= 0.5)
+        self.assertTrue(3.75 <= retry_delay(httpx2.Headers(), 10) <= 5.0)
+
     def test_acquire_waits_for_a_slot(self):
         async def run():
             throttle = Throttle(2)
@@ -71,10 +103,11 @@ class ThrottleTests(unittest.TestCase):
 class TransportTests(unittest.TestCase):
     def test_rejections_slow_every_connection_for_the_same_key(self):
         statuses = iter([429] * 3 + [200] * 100)
-        peak = {"value": 0, "active": 0}
+        peak = {"value": 0, "active": 0, "calls": 0}
 
         async def handle(request):
             peak["active"] += 1
+            peak["calls"] += 1
             peak["value"] = max(peak["value"], peak["active"])
             await asyncio.sleep(0.005)
             peak["active"] -= 1
@@ -83,10 +116,12 @@ class TransportTests(unittest.TestCase):
         async def run():
             throttles = {}
             inner = httpx2.MockTransport(handle)
-            clients = [httpx2.AsyncClient(transport=ThrottledTransport(inner, throttles, ceiling=8)) for _ in range(2)]
+            clients = [httpx2.AsyncClient(transport=ThrottledTransport(inner, throttles, ceiling=8, sleep=no_sleep))
+                       for _ in range(2)]
             headers = {"Authorization": "Bearer one"}
             first = await asyncio.gather(*(clients[i % 2].get("https://upstream.test/", headers=headers) for i in range(8)))
-            self.assertEqual(sum(r.status_code == 429 for r in first), 3)
+            self.assertEqual([r.status_code for r in first], [200] * 8)
+            self.assertEqual(peak["calls"], 11)
             (throttle,) = throttles.values()
             self.assertLess(throttle.limit, 8)
             await clients[0].get("https://upstream.test/", headers={"Authorization": "Bearer two"})
@@ -96,6 +131,79 @@ class TransportTests(unittest.TestCase):
 
         asyncio.run(run())
         self.assertLessEqual(peak["value"], 8)
+
+    def test_throttled_calls_go_again_while_others_succeed(self):
+        clock = Clock()
+        stuck = []
+
+        async def handle(request):
+            if request.url.path == "/fine":
+                return httpx2.Response(200)
+            stuck.append(request.headers.get("x-typesafe-retry-count"))
+            return httpx2.Response(429 if len(stuck) <= 40 else 200, headers={"retry-after-ms": "1000"})
+
+        async def sleep(seconds):
+            await clock.sleep(seconds)
+            if clock.now % 10 == 0:  # Another call with the key succeeds every 10 seconds.
+                await client.get("https://upstream.test/fine")
+
+        async def run():
+            nonlocal client
+            transport = ThrottledTransport(httpx2.MockTransport(handle), {}, ceiling=8, sleep=sleep, clock=clock)
+            async with httpx2.AsyncClient(transport=transport) as client:
+                # The SDK's own retry count goes up with each attempt.
+                return await client.get("https://upstream.test/stuck", headers={"x-typesafe-retry-count": "2"})
+
+        client = None
+        self.assertEqual(asyncio.run(run()).status_code, 200)
+        self.assertEqual(stuck, [str(n) for n in range(2, 43)])
+        self.assertEqual(clock.now, 40.0)
+
+    def test_a_stalled_key_hands_the_rejection_back(self):
+        clock = Clock()
+        attempts = []
+
+        async def handle(request):
+            attempts.append(clock.now)
+            return httpx2.Response(429, headers={"retry-after-ms": "1000"})
+
+        async def run():
+            transport = ThrottledTransport(httpx2.MockTransport(handle), {}, ceiling=8, sleep=clock.sleep, clock=clock)
+            async with httpx2.AsyncClient(transport=transport) as client:
+                return await client.get("https://upstream.test/")
+
+        self.assertEqual(asyncio.run(run()).status_code, 429)
+        self.assertEqual(attempts, [float(t) for t in range(31)])
+
+    def test_a_long_delay_hands_the_rejection_back_at_once(self):
+        attempts = []
+
+        async def handle(request):
+            attempts.append(request)
+            return httpx2.Response(429, headers={"retry-after": "120"})
+
+        async def run():
+            async with httpx2.AsyncClient(transport=ThrottledTransport(
+                    httpx2.MockTransport(handle), {}, ceiling=8, sleep=no_sleep)) as client:
+                return await client.get("https://upstream.test/")
+
+        self.assertEqual(asyncio.run(run()).status_code, 429)
+        self.assertEqual(len(attempts), 1)
+
+    def test_other_failures_go_back_at_once(self):
+        attempts = []
+
+        async def handle(request):
+            attempts.append(request)
+            return httpx2.Response(503, headers={"retry-after-ms": "1"})
+
+        async def run():
+            async with httpx2.AsyncClient(transport=ThrottledTransport(
+                    httpx2.MockTransport(handle), {}, ceiling=8, sleep=no_sleep)) as client:
+                return await client.get("https://upstream.test/")
+
+        self.assertEqual(asyncio.run(run()).status_code, 503)
+        self.assertEqual(len(attempts), 1)
 
 
 class SpreadTests(unittest.TestCase):

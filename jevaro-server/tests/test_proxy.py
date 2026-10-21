@@ -213,6 +213,13 @@ class ProxyTests(ServerTestCase):
             self.assertEqual(reader.read_all()["refund"].to_pylist(), [0.011, 0.012])
         self.assertEqual(self.upstream.attempts[11], 3)
 
+    def test_429_and_529_beyond_the_retry_count_do_not_abort(self):
+        # They ask for a slower pace, so they go again for as long as calls with the key succeed.
+        with self.client.system_one(states=[{"id": 13, "statuses": [429, 529] * 4}, {"id": 14}],
+                                    questions=QUESTIONS) as reader:
+            self.assertEqual(reader.read_all()["refund"].to_pylist(), [0.013, 0.014])
+        self.assertEqual(self.upstream.attempts[13], 9)
+
     def test_five_retries_by_default_then_abort(self):
         with self.client.system_one(state={"id": 21, "statuses": [503] * 5}, questions=QUESTIONS) as reader:
             self.assertEqual(reader.read_all()["refund"].to_pylist(), [0.021])
