@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.5.1 — 2026-10-22
+
+The server is released at `0.5.1` with two fixes. The Python SDK is also
+released at `0.5.1`, unchanged, because the Python packages share a version.
+The JavaScript SDK stays at `0.5.0`.
 
 - The server no longer ends a stream because one upstream call got more 429
   or 529 responses than `JEVARO_MAX_RETRIES`. It sends such a call again after
@@ -11,6 +15,10 @@
     33–40% of attempts, and 2 of 7 runs aborted when one call was rejected 6
     times in a row. With the fix, runs completed at 2,258 and 2,378 states per
     second, even with `JEVARO_MAX_RETRIES=0`.
+- Fix: the server responds with 422 to an Arrow IPC `states` stream whose
+  offset buffers are out of bounds or out of order. In 0.5.0, converting such
+  a row could read adjacent memory into a string or image value, or crash the
+  server process.
 
 ## 0.5.0 — 2026-10-16
 

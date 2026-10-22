@@ -302,7 +302,7 @@ def create_app(*, client_factory=AsyncTypeSafeClient, transport=None, transport_
             app.state.throttles = throttles
             yield
 
-    app = FastAPI(title="Jevaro", version="0.5.0", lifespan=lifespan)
+    app = FastAPI(title="Jevaro", version="0.5.1", lifespan=lifespan)
 
     def answer_stream(api_key, plan):
         schema, body = plan.schema, plan.body
