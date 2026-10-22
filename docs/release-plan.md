@@ -276,6 +276,27 @@ the release code before the version bump.
 The source tag and tested archives are in the
 [v0.5.0 GitHub release](https://github.com/columnar-tech/jevaro/releases/tag/v0.5.0).
 
+## 0.5.1
+
+The [server](https://pypi.org/project/jevaro-server/0.5.1/) and
+[Python SDK](https://pypi.org/project/jevaro/0.5.1/) were published on
+2026-10-22. The server no longer ends a stream when one upstream call gets
+more 429 or 529 responses than `JEVARO_MAX_RETRIES`, and it responds with
+422 to an Arrow IPC stream with out-of-bounds or out-of-order offsets. The
+Python SDK is unchanged but shares the server's version. The JavaScript SDK
+stays at [0.5.0](https://www.npmjs.com/package/jevaro/v/0.5.0).
+
+The [PyPI workflow](https://github.com/columnar-tech/jevaro/actions/runs/39813436404)
+published from `9aef57c1c02de07a6ba224dab200da1aca080f17`. All four
+compatibility jobs passed, on Node 22.0.0 and 24. Fresh installs from PyPI,
+with the JavaScript SDK at 0.5.0 from npm, passed the SDK, TypeScript, HTTP,
+and saved-file checks on Python 3.11 and 3.14. Published READMEs match the
+source, and all four Python SHA-256 hashes match the tested files. API
+responses were simulated for these checks.
+
+The source tag and tested Python archives are in the
+[v0.5.1 GitHub release](https://github.com/columnar-tech/jevaro/releases/tag/v0.5.1).
+
 ## References checked for this plan
 
 - [PyPA: packaging projects and distribution metadata](https://packaging.python.org/en/latest/tutorials/packaging-projects/)
